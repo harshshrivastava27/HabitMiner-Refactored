@@ -121,8 +121,11 @@ jobs:
 
       # Publish the screenshots and the debug APK to a separate branch so they can be
       # reviewed and downloaded without opening the Actions artifacts.
+      # Pull requests from forks get a read-only token, so publishing is skipped there
+      # (the build and tests still run). A publishing hiccup never fails the build.
       - name: Publish screenshots and APK
-        if: always() && hashFiles('android/app/build/screenshots/*.png') != ''
+        if: always() && github.event_name != 'pull_request' && hashFiles('android/app/build/screenshots/*.png') != ''
+        continue-on-error: true
         working-directory: .
         run: |
           set -e
