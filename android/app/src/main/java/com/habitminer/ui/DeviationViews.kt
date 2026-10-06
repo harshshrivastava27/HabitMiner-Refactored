@@ -19,7 +19,12 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -109,8 +114,10 @@ fun DeviationCard(
 fun RoutineShiftCard(
     shift: RoutineShift,
     answer: String?,
+    compact: Boolean = false,
     onLabel: (String) -> Unit,
 ) {
+    var expanded by remember { mutableStateOf(!compact) }
     val option = answer?.let { PeriodOption.fromKey(it) }
     val name = shift.label ?: option?.takeIf { it.setsAside }?.label
     SurfaceCard {
@@ -140,10 +147,12 @@ fun RoutineShiftCard(
             option == null && shift.label == null -> {
                 Hint("What's going on? Days you label are kept out of your usual pattern, so they don't change what counts as normal.")
                 Spacer(modifier = Modifier.height(6.dp))
+                val options = if (expanded) PeriodOption.entries else listOf(PeriodOption.EXAMS, PeriodOption.TRAVEL, PeriodOption.NOTHING)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PeriodOption.entries.forEach { o ->
+                    options.forEach { o ->
                         OutlinedButton(onClick = { onLabel(o.key) }) { Text("${o.emoji} ${o.label}") }
                     }
+                    if (!expanded) TextButton(onClick = { expanded = true }) { Text("More…") }
                 }
             }
             name != null -> Hint("You said: $name. These days are kept out of your usual pattern and won't trigger evening alerts.")

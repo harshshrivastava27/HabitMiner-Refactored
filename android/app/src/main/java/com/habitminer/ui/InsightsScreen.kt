@@ -231,7 +231,7 @@ private fun LazyListScope.deviationsTab(
         item(key = "day-$date") {
             Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    dayLabel(date),
+                    dayLabel(date, com.habitminer.analytics.TimeUtil.dateOf(insights.computedAt, java.time.ZoneId.systemDefault())),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onBackground,

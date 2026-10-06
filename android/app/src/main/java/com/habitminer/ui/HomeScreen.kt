@@ -416,11 +416,12 @@ fun TodayDeviationCard(
     state: HabitUiState,
     viewModel: HabitActions,
 ) {
-    val today = java.time.LocalDate.now()
+    val insights = state.insights ?: return
+    val today = TimeUtil.dateOf(insights.computedAt, java.time.ZoneId.systemDefault())
     val dev =
-        state.insights?.deviations?.days
-            ?.filter { it.date == today && it.explainedBy == null && state.deviationFeedback[it.key] != UserLabelEntity.FEEDBACK_EXPECTED }
-            ?.maxByOrNull { it.score } ?: return
+        insights.deviations.days
+            .filter { it.date == today && it.explainedBy == null && state.deviationFeedback[it.key] != UserLabelEntity.FEEDBACK_EXPECTED }
+            .maxByOrNull { it.score } ?: return
     DeviationCard(dev, state.deviationFeedback[dev.key], showDay = false) { value -> viewModel.giveDeviationFeedback(dev.key, value) }
 }
 
@@ -431,7 +432,7 @@ fun TodayNapQuestion(
     viewModel: HabitActions,
 ) {
     val insights = state.insights ?: return
-    val now = System.currentTimeMillis()
+    val now = insights.computedAt
     val nap =
         insights.naps.lastOrNull {
             it.confidence != com.habitminer.analytics.Confidence.LOW &&
@@ -450,7 +451,7 @@ fun TodayRoutineShift(
     val insights = state.insights ?: return
     val shift = insights.deviations.shift ?: return
     if (shift.label != null || shift.key in insights.answers) return
-    RoutineShiftCard(shift, null) { value -> viewModel.labelPeriod(shift.key, shift.since, value) }
+    RoutineShiftCard(shift, null, compact = true) { value -> viewModel.labelPeriod(shift.key, shift.since, value) }
 }
 
 @Composable
