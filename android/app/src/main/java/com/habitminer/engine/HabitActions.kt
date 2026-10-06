@@ -1,7 +1,6 @@
 package com.habitminer.engine
 
 import com.habitminer.analytics.CheckInOption
-import com.habitminer.data.DeviationEntity
 
 /**
  * What the Today, History and Insights screens can ask for. [HabitViewModel] implements it;
@@ -16,8 +15,22 @@ interface HabitActions {
 
     fun dismissCheckIn()
 
+    /** [key] is a [com.habitminer.analytics.DayDeviation.key]; value EXPECTED or UNUSUAL. */
     fun giveDeviationFeedback(
-        deviation: DeviationEntity,
+        key: String,
+        value: String,
+    )
+
+    /** Answer to "were you asleep?" for a [com.habitminer.analytics.NapCandidate.key]. */
+    fun answerNap(
+        key: String,
+        asleep: Boolean,
+    )
+
+    /** What a routine change was (a [com.habitminer.analytics.PeriodOption] key). */
+    fun labelPeriod(
+        key: String,
+        from: java.time.LocalDate,
         value: String,
     )
 

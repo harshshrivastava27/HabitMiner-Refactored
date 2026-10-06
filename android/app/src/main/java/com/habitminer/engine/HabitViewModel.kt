@@ -14,7 +14,6 @@ import com.habitminer.collection.HabitNotificationListener
 import com.habitminer.collection.UsageDataCollector
 import com.habitminer.data.AppUsageEntity
 import com.habitminer.data.ContextSnapshotEntity
-import com.habitminer.data.DeviationEntity
 import com.habitminer.data.DiscoveredHabitEntity
 import com.habitminer.data.PrefsKeys
 import com.habitminer.domain.AppIdentityResolver
@@ -59,6 +58,7 @@ data class FeatureSettings(
     val checkIns: Boolean = true,
     val nudges: Boolean = true,
     val digest: Boolean = true,
+    val deviationAlerts: Boolean = true,
     val places: Boolean = false,
     val placesPermission: Boolean = false,
 )
@@ -76,10 +76,9 @@ data class HabitUiState(
     val todayAppUsage: ImmutableList<AppUsageEntity> = persistentListOf(),
     val todaySnapshots: ImmutableList<ContextSnapshotEntity> = persistentListOf(),
     val discoveredHabits: ImmutableList<DiscoveredHabitEntity> = persistentListOf(),
-    val todayDeviations: ImmutableList<DeviationEntity> = persistentListOf(),
-    val recentDeviations: ImmutableList<DeviationEntity> = persistentListOf(),
-    val overallDeviationScore: Float = 0f,
-    val predictions: ImmutableList<PredictionEngine.Prediction> = persistentListOf(),
+    /** Likely next apps after [predictionsAfter], from the next-app model. */
+    val predictions: ImmutableList<com.habitminer.analytics.AppGuess> = persistentListOf(),
+    val predictionsAfter: String? = null,
     val predictabilityScore: Float = 0f,
     val baselineStatus: String = "Building baseline...",
     val hasEnoughData: Boolean = false,
@@ -103,7 +102,7 @@ data class HabitUiState(
     val insights: InsightsBundle? = null,
     /** Latest snapshot that has real sensor readings (sensors pause while the screen is off). */
     val latestSensorContext: ContextSnapshotEntity? = null,
-    /** Deviation fingerprint → EXPECTED / UNUSUAL. */
+    /** Deviation key → EXPECTED / UNUSUAL. */
     val deviationFeedback: ImmutableMap<String, String> = persistentMapOf(),
     val checkInCount: Int = 0,
     val labelCount: Int = 0,
@@ -128,9 +127,7 @@ class HabitViewModel
         private val contextRepository: ContextRepository,
         private val habitRepository: HabitRepository,
         private val habitEngine: HabitEngine,
-        private val predictionEngine: PredictionEngine,
         private val baselineBuilder: BaselineBuilder,
-        private val deviationDetector: DeviationDetector,
         private val usageDataCollector: UsageDataCollector,
         private val appIdentityResolver: AppIdentityResolver,
         private val exportManager: com.habitminer.data.ExportManager,
@@ -157,7 +154,11 @@ class HabitViewModel
             val snapshots: List<ContextSnapshotEntity>,
             val habits: List<DiscoveredHabitEntity>,
             val places: List<com.habitminer.data.PlaceEntity>,
+            val labels: List<com.habitminer.data.UserLabelEntity>,
         )
+
+        /** Periods you labelled (exams…), kept out of the "usual by now" comparison. */
+        private val labelledPeriods = MutableStateFlow<List<com.habitminer.analytics.LabelledPeriod>>(emptyList())
 
         init {
             // checkPermissions() is called by MainActivity.onCreate() and onResume();
@@ -385,19 +386,36 @@ class HabitViewModel
         }
 
         /**
-         * Records whether a deviation was expected or unusual. Stored by fingerprint because
-         * deviations are re-detected (and re-inserted) whenever today's data changes.
+         * Records whether a deviation was expected or unusual. Stored by key (date, kind and
+         * subject) because deviations are recomputed whenever the data changes.
          */
         override fun giveDeviationFeedback(
-            deviation: DeviationEntity,
+            key: String,
             value: String,
         ) {
             viewModelScope.launch(Dispatchers.IO) {
-                feedbackRepository.saveDeviationFeedback(
-                    AnalyticsMappers.fingerprint(deviation),
-                    value,
-                    labelContextCapture.captureJson(),
-                )
+                feedbackRepository.saveDeviationFeedback(key, value, labelContextCapture.captureJson())
+            }
+        }
+
+        override fun answerNap(
+            key: String,
+            asleep: Boolean,
+        ) {
+            viewModelScope.launch(Dispatchers.IO) {
+                feedbackRepository.saveNapAnswer(key, asleep, labelContextCapture.captureJson())
+                com.habitminer.proactive.Notifier.cancel(getApplication(), com.habitminer.proactive.Notifier.ID_NAP)
+            }
+        }
+
+        override fun labelPeriod(
+            key: String,
+            from: java.time.LocalDate,
+            value: String,
+        ) {
+            viewModelScope.launch(Dispatchers.IO) {
+                feedbackRepository.savePeriodLabel(key, value, from, java.time.LocalDate.now())
+                com.habitminer.proactive.Notifier.cancel(getApplication(), com.habitminer.proactive.Notifier.ID_PERIOD)
             }
         }
 
@@ -428,6 +446,7 @@ class HabitViewModel
                 checkIns = prefs.getBoolean(PrefsKeys.CHECKINS_ENABLED, true),
                 nudges = prefs.getBoolean(PrefsKeys.NUDGES_ENABLED, true),
                 digest = prefs.getBoolean(PrefsKeys.DIGEST_ENABLED, true),
+                deviationAlerts = prefs.getBoolean(PrefsKeys.DEVIATION_ALERTS_ENABLED, true),
                 places = wifiPlaceProvider.isEnabled() && wifiPlaceProvider.hasPermission(),
                 placesPermission = wifiPlaceProvider.hasPermission(),
             )
@@ -447,6 +466,8 @@ class HabitViewModel
         fun setNudgesEnabled(enabled: Boolean) = setFlag(PrefsKeys.NUDGES_ENABLED, enabled)
 
         fun setDigestEnabled(enabled: Boolean) = setFlag(PrefsKeys.DIGEST_ENABLED, enabled)
+
+        fun setDeviationAlertsEnabled(enabled: Boolean) = setFlag(PrefsKeys.DEVIATION_ALERTS_ENABLED, enabled)
 
         /** Call after the location permission result. Restarts the service so it gains the location type. */
         fun setPlacesEnabled(enabled: Boolean) {
@@ -476,7 +497,6 @@ class HabitViewModel
         private suspend fun refreshHabits() = withContext(Dispatchers.Default) {
             val startOfDay = getStartOfDay()
             val allUsage = contextRepository.getAllUsage().first()
-            val todayUsage = contextRepository.getTodayUsage(startOfDay).first()
             val historicalUsage = allUsage.filter { it.startTime < startOfDay }
 
             // Baseline
@@ -493,10 +513,6 @@ class HabitViewModel
             // Predictability
             val predictability = habitEngine.computePredictabilityScore(historicalUsage)
 
-            // Deviations
-            val todayContexts = snapshots.filter { it.timestamp >= startOfDay }
-            val deviationsResult = deviationDetector.detectDeviations(todayUsage, todayContexts, newBaselines)
-
             val daysOfData = baselineBuilder.getDaysOfData(allUsage)
             val existingBaselines = habitRepository.getAllBaselines().first()
             val hasEnoughData = daysOfData >= 5 || existingBaselines.isNotEmpty()
@@ -510,6 +526,28 @@ class HabitViewModel
                     predictabilityScore = predictability,
                 )
             }
+        }
+
+        /** Keeps the deviations table in step with what the app shows, so they are in the export. */
+        private suspend fun storeDeviations(bundle: InsightsBundle) {
+            runCatching {
+                val zone = java.time.ZoneId.systemDefault()
+                val since = com.habitminer.analytics.TimeUtil.startOfDay(java.time.LocalDate.now(zone).minusDays(7), zone)
+                habitRepository.replaceDeviationsSince(
+                    since,
+                    bundle.deviations.days.map { d ->
+                        com.habitminer.data.DeviationEntity(
+                            timestamp = d.occurredAt,
+                            timeBin = "DAY",
+                            deviationType = d.kind.name,
+                            description = "${d.title}. ${d.detail}" + (d.explainedBy?.let { " ($it)" } ?: ""),
+                            zScore = d.score,
+                            normalizedScore = (d.score / 6f).coerceIn(0f, 1f),
+                            affectedCategory = d.subject,
+                        )
+                    },
+                )
+            }.onFailure { android.util.Log.w("HabitMiner", "Could not store deviations", it) }
         }
 
         private fun observeData() {
@@ -551,42 +589,21 @@ class HabitViewModel
                                 }
 
                                 if (validUsage.isNotEmpty()) {
-                                    val latest = validUsage.first()
                                     // Use the cached all-usage list — avoids a full table scan here (CRITICAL-5)
                                     val cachedAllUsage = allUsageCache.value
                                     if (cachedAllUsage.isNotEmpty()) {
-                                        val predictions =
+                                        val (after, guesses) =
                                             withContext(Dispatchers.Default) {
-                                                predictionEngine.predict(
-                                                    cachedAllUsage,
-                                                    appIdentityResolver.getAppName(latest.packageName),
-                                                    latest.timeSlot,
-                                                    latest.dayType,
-                                                )
+                                                val now = System.currentTimeMillis()
+                                                val horizon = now - InsightsComputer.LOOKBACK_DAYS * com.habitminer.analytics.TimeUtil.DAY
+                                                val sessions =
+                                                    cachedAllUsage.filter { it.startTime >= horizon }
+                                                        .filterNot { appIdentityResolver.isLauncher(it.packageName) }
+                                                        .map(AnalyticsMappers::session)
+                                                com.habitminer.analytics.NextAppModel.currentApp(sessions) to
+                                                    com.habitminer.analytics.NextAppModel.predict(sessions, now, java.time.ZoneId.systemDefault())
                                             }
-                                        _uiState.update { it.copy(predictions = predictions.toImmutableList()) }
-                                    }
-
-                                    // Evaluate today's deviations dynamically
-                                    withContext(Dispatchers.Default) {
-                                        val currentBaselines = habitRepository.getAllBaselines().first()
-                                        val todayContexts = contextRepository.getTodaySnapshots(startOfDay).first()
-                                        val deviationsResult = deviationDetector.detectDeviations(usage, todayContexts, currentBaselines)
-                                        habitRepository.deleteDeviationsSince(startOfDay)
-                                        deviationsResult.forEach { dev ->
-                                            habitRepository.insertDeviation(
-                                                com.habitminer.data.DeviationEntity(
-                                                    // When it happened, not when it was detected.
-                                                    timestamp = dev.occurredAt,
-                                                    timeBin = dev.timeBin,
-                                                    deviationType = dev.deviationType,
-                                                    description = dev.description,
-                                                    zScore = dev.zScore,
-                                                    normalizedScore = dev.normalizedScore,
-                                                    affectedCategory = dev.affectedCategory,
-                                                ),
-                                            )
-                                        }
+                                        _uiState.update { it.copy(predictions = guesses.toImmutableList(), predictionsAfter = after) }
                                     }
                                 }
                             }
@@ -617,21 +634,6 @@ class HabitViewModel
                         }
                     }
 
-                    launch {
-                        startOfDayFlow.collectLatest { startOfDay ->
-                            habitRepository.getTodayDeviations(startOfDay).collect { devs ->
-                                val overallScore = devs.maxOfOrNull { it.normalizedScore } ?: 0f
-                                _uiState.update { it.copy(todayDeviations = devs.toImmutableList(), overallDeviationScore = overallScore) }
-                            }
-                        }
-                    }
-
-                    launch {
-                        habitRepository.getRecentDeviations(20).collect { devs ->
-                            _uiState.update { it.copy(recentDeviations = devs.toImmutableList()) }
-                        }
-                    }
-
                     // Unlock count recorded by our own receiver (only counts while the app is running).
                     val snapshotUnlocks = MutableStateFlow(0)
                     launch {
@@ -652,16 +654,30 @@ class HabitViewModel
                             }
                         }
                     launch {
-                        combine(allUsageCache, minuteTicker, snapshotUnlocks) { usage, now, recorded ->
-                            Triple(usage, now, recorded)
-                        }.collectLatest { (usage, now, recorded) ->
+                        combine(allUsageCache, minuteTicker, snapshotUnlocks, labelledPeriods) { usage, now, recorded, periods ->
+                            listOf(usage, now, recorded, periods)
+                        }.collectLatest { values ->
+                            @Suppress("UNCHECKED_CAST")
+                            val usage = values[0] as List<AppUsageEntity>
+                            val now = values[1] as Long
+                            val recorded = values[2] as Int
+
+                            @Suppress("UNCHECKED_CAST")
+                            val periods = values[3] as List<com.habitminer.analytics.LabelledPeriod>
                             val typical =
                                 withContext(Dispatchers.Default) {
+                                    val zone = java.time.ZoneId.systemDefault()
+                                    val excluded =
+                                        periods.flatMap { p ->
+                                            generateSequence(p.from) { it.plusDays(1) }.takeWhile { !it.isAfter(p.to) }
+                                                .map { com.habitminer.analytics.TimeUtil.startOfDay(it, zone) }.toList()
+                                        }.toSet()
                                     TypicalUsageCalculator.compute(
                                         usage
                                             .filterNot { appIdentityResolver.isLauncher(it.packageName) }
                                             .map { TypicalUsageCalculator.Interval(it.startTime, it.endTime, it.durationMs) },
                                         now,
+                                        excludedDayStarts = excluded,
                                     )
                                 }
                             val systemUnlocks =
@@ -700,6 +716,7 @@ class HabitViewModel
 
                     launch {
                         feedbackRepository.getAllLabels().collect { labels ->
+                            labelledPeriods.value = LabelMappers.periods(labels)
                             val feedback =
                                 labels.filter { it.kind == com.habitminer.data.UserLabelEntity.KIND_DEVIATION_FEEDBACK && it.refKey != null }
                                     .associate { it.refKey!! to it.value }
@@ -739,23 +756,27 @@ class HabitViewModel
                                     delay(5 * 60_000L)
                                 }
                             }
+                        val placesAndLabels = combine(feedbackRepository.getPlaces(), feedbackRepository.getAllLabels()) { p, l -> p to l }
                         combine(
                             allUsageCache,
                             contextRepository.getAllSnapshots(),
                             habitRepository.getAllHabits(),
-                            feedbackRepository.getPlaces(),
+                            placesAndLabels,
                             merge(ticker, insightsRefresh),
-                        ) { usage, snapshots, habits, places, _ ->
-                            InsightsInputs(usage, snapshots, habits, places)
+                        ) { usage, snapshots, habits, pl, _ ->
+                            InsightsInputs(usage, snapshots, habits, pl.first, pl.second)
                         }.debounce(1_000L).collectLatest { inputs ->
                             if (inputs.usage.isEmpty()) return@collectLatest
                             val bundle =
                                 withContext(Dispatchers.Default) {
                                     runCatching {
-                                        insightsComputer.compute(inputs.usage, inputs.snapshots, inputs.habits, inputs.places)
+                                        insightsComputer.compute(inputs.usage, inputs.snapshots, inputs.habits, inputs.places, inputs.labels)
                                     }.onFailure { e -> android.util.Log.e("HabitMiner", "Insights failed", e) }.getOrNull()
                                 }
-                            if (bundle != null) _uiState.update { it.copy(insights = bundle) }
+                            if (bundle != null) {
+                                _uiState.update { it.copy(insights = bundle) }
+                                withContext(Dispatchers.IO) { storeDeviations(bundle) }
+                            }
                         }
                     }
 

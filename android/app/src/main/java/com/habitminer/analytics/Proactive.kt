@@ -6,7 +6,7 @@ import java.time.ZoneId
 import java.time.temporal.IsoFields
 
 /** What kind of prompt went out; stored so the daily budget can be enforced. */
-enum class PromptKind { CHECK_IN, NUDGE, DIGEST }
+enum class PromptKind { CHECK_IN, NUDGE, DIGEST, NAP, PERIOD, DEVIATIONS }
 
 data class SentPrompt(
     val kind: PromptKind,
@@ -27,6 +27,10 @@ data class Nudge(
  *   only while the phone is in use, and at least 2 hours apart.
  * - Nudges fire on a long continuous leisure stretch (late at night: 25 min; daytime: 60 min),
  *   at most one per 2 hours.
+ * - "Were you asleep?" is asked once per likely nap, within 3 hours of picking the phone up.
+ * - "What's different?" is asked at most once a day while an unexplained routine change lasts.
+ * - The evening summary goes out once, between 21:00 and 23:00, on days with something notable.
+ * All of these share the daily limit with check-ins and nudges.
  */
 object PromptPolicy {
     const val MAX_PROMPTS_PER_DAY = 3
@@ -124,6 +128,53 @@ object PromptPolicy {
                 )
             else -> null
         }
+    }
+
+    fun canAskNap(
+        enabled: Boolean,
+        screenOn: Boolean,
+        nap: NapCandidate?,
+        answered: Set<String>,
+        sent: List<SentPrompt>,
+        now: Long,
+        zone: ZoneId,
+    ): Boolean {
+        if (!enabled || !screenOn || nap == null) return false
+        if (nap.confidence == Confidence.LOW || nap.key in answered) return false
+        if (now < nap.end || now - nap.end > 3 * TimeUtil.HOUR) return false
+        if (sent.any { it.kind == PromptKind.NAP && it.time >= nap.end }) return false
+        return promptsToday(sent, now, zone).size < MAX_PROMPTS_PER_DAY
+    }
+
+    fun canAskPeriod(
+        enabled: Boolean,
+        screenOn: Boolean,
+        shift: RoutineShift?,
+        answered: Set<String>,
+        sent: List<SentPrompt>,
+        now: Long,
+        zone: ZoneId,
+    ): Boolean {
+        if (!enabled || !screenOn || shift == null || shift.label != null || shift.key in answered) return false
+        if (TimeUtil.hourOf(now, zone) !in 9 until 22) return false
+        if (sent.any { it.kind == PromptKind.PERIOD && now - it.time < TimeUtil.DAY }) return false
+        val today = promptsToday(sent, now, zone)
+        if (today.size >= MAX_PROMPTS_PER_DAY) return false
+        return today.none { now - it.time < 30 * TimeUtil.MINUTE }
+    }
+
+    fun canSendDeviationSummary(
+        enabled: Boolean,
+        notableToday: List<DayDeviation>,
+        sent: List<SentPrompt>,
+        now: Long,
+        zone: ZoneId,
+    ): Boolean {
+        if (!enabled || notableToday.isEmpty()) return false
+        if (TimeUtil.hourOf(now, zone) !in 21 until 23) return false
+        val today = promptsToday(sent, now, zone)
+        if (today.any { it.kind == PromptKind.DEVIATIONS }) return false
+        return today.size < MAX_PROMPTS_PER_DAY
     }
 
     /** Weekly digest goes out once per ISO week, on Sunday from 19:00. */

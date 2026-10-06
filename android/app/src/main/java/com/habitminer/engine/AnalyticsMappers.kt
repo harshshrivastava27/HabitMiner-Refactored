@@ -33,6 +33,7 @@ object AnalyticsMappers {
             batteryLevel = e.batteryLevel.takeIf { it in 0..100 },
             place = e.wifiPlace,
             recentSteps = e.recentSteps.takeIf { it >= 0 },
+            stepsSinceLast = e.stepsSinceLastSnapshot.takeIf { it >= 0 },
         )
 
     /**

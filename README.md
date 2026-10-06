@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)  
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)  
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com/)
-[![Version](https://img.shields.io/badge/Version-1.2.1-blue.svg)](https://github.com/Reyatsu99/HabitMiner-Refactored/releases)
+[![Version](https://img.shields.io/badge/Version-1.3.0-blue.svg)](https://github.com/Reyatsu99/HabitMiner-Refactored/releases)
 
 ---
 
@@ -107,6 +107,18 @@ The on-device **HabitEngine** aggregates this data to build temporal baselines (
 - **100% Offline & Private**: All data collection and machine learning happens on-device using Room Database. No data is sent to the cloud.
 - **Battery Efficient & Resilient Monitoring**: Uses a persistent Foreground Service coupled with a fallback `WorkManager` for continuous, reliable data collection without being killed by OEM battery optimizations.
 - **Robust Data Pipeline**: Intelligent session deduplication merges overlapping app events, and context sensor rate-limiting prevents database bloating.
+
+### New in v1.3
+
+Tuned against two weeks of real data from one of the authors (including an exam week).
+
+- **Deviations rebuilt**: every day of the last week, and today so far, is compared with up to four weeks of usual days of the same kind (median and median absolute deviation, so a few odd days don't skew "usual"). Differences are reported in both directions: total time, late-night use, usual apps going missing or spiking, rarely used apps, unlocks, and short or shifted sleep. Today is compared at the same time of day. The old detector never fired in 15 days of that data; the new one finds the quiet exam days, the missing game and the late nights.
+- **Routine changes**: several days in a row well above or below usual (e.g. exam week) show as one change with the apps that moved. HabitMiner asks once what's going on (exams, travel, unwell, holiday…); labelled days are kept out of "usual" everywhere, including the usual-by-now curve.
+- **Evening summary**: around 21:00 on days with something notable, with Expected / Unusual buttons that save labels.
+- **Sleep with brief wake-ups**: switching off an alarm or checking the time no longer ends the night. Neighbouring screen-off stretches are joined unless the step counter shows you getting up, so the night is reported as e.g. "03:31 → 08:10, woke briefly 2×".
+- **Naps**: daytime stretches of 45+ minutes with the phone untouched and no steps (stronger if the room is dark when you pick the phone up) trigger "Were you asleep?". Confirmed naps appear under Sleep and on the History timeline.
+- **Next-app model**: learns online with recency weighting from what usually follows the current app, the last two apps, the hour of day and apps used in the last hour, and skips share sheets, pickers and call screens. On the authors' last three days: right first time 34% (was 21%), in the top 3 61% (was 41%), against 22% for always guessing the most-used app. Insights → Routines shows what it guessed before each recent switch and what you actually opened.
+- **Export** now includes unlocks and notifications (`device_events_*.csv`).
 
 ### New in v1.2
 

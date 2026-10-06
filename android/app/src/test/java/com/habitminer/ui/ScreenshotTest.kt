@@ -9,7 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.habitminer.analytics.CheckInOption
 import com.habitminer.analytics.TimeUtil
-import com.habitminer.data.DeviationEntity
 import com.habitminer.engine.HabitActions
 import com.habitminer.ui.theme.HabitMinerTheme
 import org.junit.Before
@@ -43,7 +42,18 @@ class ScreenshotTest {
         override fun dismissCheckIn() = Unit
 
         override fun giveDeviationFeedback(
-            deviation: DeviationEntity,
+            key: String,
+            value: String,
+        ) = Unit
+
+        override fun answerNap(
+            key: String,
+            asleep: Boolean,
+        ) = Unit
+
+        override fun labelPeriod(
+            key: String,
+            from: java.time.LocalDate,
             value: String,
         ) = Unit
 

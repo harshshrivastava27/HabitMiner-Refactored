@@ -400,7 +400,7 @@ fun DayTimelineStrip(
         }
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            LegendDot(sleepColor, "Sleep (top line)")
+            LegendDot(sleepColor, "Sleep & naps (top line)")
             LegendDot(darkColor, "Dark")
             LegendDot(dimColor, "Dim")
             LegendDot(brightColor, "Bright")

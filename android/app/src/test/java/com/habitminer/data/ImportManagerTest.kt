@@ -29,7 +29,7 @@ class ImportManagerTest {
     @Before
     fun setUp() {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
-        importer = ImportManager(context, db.appUsageDao(), db.contextDao(), db.labelDao(), db.placeDao())
+        importer = ImportManager(context, db.appUsageDao(), db.contextDao(), db.labelDao(), db.placeDao(), db.deviceEventDao())
     }
 
     @After

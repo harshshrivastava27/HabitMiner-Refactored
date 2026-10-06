@@ -103,6 +103,8 @@ class ContextRepository
 
         suspend fun insertDeviceEvent(event: com.habitminer.data.DeviceEventEntity) = deviceEventDao.insert(event)
 
+        suspend fun getAllDeviceEvents(): List<com.habitminer.data.DeviceEventEntity> = deviceEventDao.getAll()
+
         suspend fun countDeviceEventsSince(eventType: String, sinceMs: Long): Int = deviceEventDao.countSince(eventType, sinceMs)
 
         suspend fun clearOldData(retentionCutoffMs: Long) {

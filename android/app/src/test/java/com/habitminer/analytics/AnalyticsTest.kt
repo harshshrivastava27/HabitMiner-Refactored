@@ -107,11 +107,20 @@ class SleepDetectorTest {
     }
 
     @Test
-    fun `an unlock in the night splits the gap`() {
+    fun `a quick unlock in the night is a brief wake-up`() {
         val sessions = listOf(s("A", d(2), 23, 0, 30), s("B", wake, 9, 0, 5))
         val est = SleepDetector.detect(sessions, listOf(at(wake, 3, 0)), emptyList(), wake, at(wake, 18), ZONE)!!
-        assertEquals(at(wake, 3, 0), est.sleepStart)
+        assertEquals(at(d(2), 23, 30), est.sleepStart)
         assertEquals(at(wake, 9, 0), est.wakeTime)
+        assertEquals(1, est.briefWakes.size)
+    }
+
+    @Test
+    fun `real phone use in the night splits it`() {
+        val sessions = listOf(s("A", d(2), 23, 0, 30), s("C", wake, 3, 0, 20), s("B", wake, 9, 0, 5))
+        val est = SleepDetector.detect(sessions, emptyList(), emptyList(), wake, at(wake, 18), ZONE)!!
+        assertEquals(at(wake, 3, 20), est.sleepStart)
+        assertTrue(est.briefWakes.isEmpty())
     }
 
     @Test
@@ -471,5 +480,156 @@ class MotionMathTest {
     fun `too few readings after warm-up give no result`() {
         val few = (0 until 5).map { (400L + it * 20L) to (9.8f + it * 0.1f) }
         assertNull(MotionMath.stats(few, warmUpMs = 300))
+    }
+}
+
+private fun stepsSample(
+    time: Long,
+    steps: Int,
+    lux: Float? = null,
+) = ContextSample(time, lux, null, false, isScreenOn = lux != null, proximityNear = null, batteryLevel = 50, stepsSinceLast = steps)
+
+private fun clock(
+    date: LocalDate,
+    h: Int,
+    m: Int,
+): UsageSession {
+    val start = at(date, h, m)
+    return UsageSession("com.android.deskclock", "Clock", AppCategory.TOOLS, start, start + MIN, MIN)
+}
+
+class SleepWakeUpTest {
+    private val day = d(5)
+
+    private fun night(): List<UsageSession> =
+        listOf(
+            s("A", d(4), 23, 0, 30),
+            s("A", day, 3, 0, 30),
+            s("B", day, 7, 20, 1),
+            s("C", day, 7, 50, 1),
+            clock(day, 8, 10),
+            s("A", day, 8, 40, 20),
+        )
+
+    @Test
+    fun `brief wake-ups and an alarm don't end the night, walking does`() {
+        val samples = listOf(stepsSample(at(day, 6, 0), 0), stepsSample(at(day, 8, 0), 0), stepsSample(at(day, 8, 35), 200))
+        val est = SleepDetector.detect(night(), emptyList(), samples, day, at(day, 20), ZONE)!!
+        assertEquals(at(day, 3, 30), est.sleepStart)
+        assertEquals(at(day, 8, 10), est.wakeTime)
+        assertEquals(2, est.briefWakes.size)
+        assertEquals((4 * 60 + 40 - 2) * MIN, est.durationMs)
+    }
+
+    @Test
+    fun `steps right after the first wake-up mean you got up`() {
+        val samples = listOf(stepsSample(at(day, 7, 40), 150))
+        val est = SleepDetector.detect(night(), emptyList(), samples, day, at(day, 20), ZONE)!!
+        assertEquals(at(day, 7, 20), est.wakeTime)
+        assertTrue(est.briefWakes.isEmpty())
+    }
+}
+
+class NapDetectorTest {
+    private val day = d(5)
+    private val sessions = listOf(s("A", day, 13, 0, 10), s("B", day, 15, 0, 5))
+
+    @Test
+    fun `a still afternoon gap ending in a dark room is a likely nap`() {
+        val samples = listOf(stepsSample(at(day, 14, 0), 0), stepsSample(at(day, 15, 1), 0, lux = 3f))
+        val naps = NapDetector.candidates(sessions, emptyList(), samples, day, at(day, 18), ZONE, null)
+        assertEquals(1, naps.size)
+        assertEquals(at(day, 13, 10), naps[0].start)
+        assertEquals(at(day, 15, 0), naps[0].end)
+        assertEquals(Confidence.HIGH, naps[0].confidence)
+    }
+
+    @Test
+    fun `walking during the gap is not a nap`() {
+        val samples = listOf(stepsSample(at(day, 14, 0), 500))
+        assertTrue(NapDetector.candidates(sessions, emptyList(), samples, day, at(day, 18), ZONE, null).isEmpty())
+    }
+
+    @Test
+    fun `nap question is asked once, soon after waking`() {
+        val nap = NapCandidate(at(day, 13, 10), at(day, 15, 0), Confidence.HIGH, emptyList())
+        assertTrue(PromptPolicy.canAskNap(true, true, nap, emptySet(), emptyList(), at(day, 15, 20), ZONE))
+        assertFalse(PromptPolicy.canAskNap(true, true, nap, setOf(nap.key), emptyList(), at(day, 15, 20), ZONE))
+        assertFalse(PromptPolicy.canAskNap(true, true, nap, emptySet(), listOf(SentPrompt(PromptKind.NAP, at(day, 15, 5))), at(day, 15, 20), ZONE))
+        assertFalse(PromptPolicy.canAskNap(true, true, nap, emptySet(), emptyList(), at(day, 19, 0), ZONE))
+        assertFalse(PromptPolicy.canAskNap(true, true, nap.copy(confidence = Confidence.LOW), emptySet(), emptyList(), at(day, 15, 20), ZONE))
+    }
+}
+
+class DeviationFinderTest {
+    /** 18 regular days (A 10–13, B 20–21), two quieter days, then a nearly empty today. */
+    private fun history(): List<UsageSession> {
+        val out = mutableListOf<UsageSession>()
+        for (day in 1..20) {
+            out += s("A", d(day), 10, 0, if (day >= 19) 60L else 180L)
+            out += s("B", d(day), 20, 0, 60)
+        }
+        out += s("B", d(21), 12, 0, 10)
+        return out
+    }
+
+    private val now = at(d(21), 18)
+
+    @Test
+    fun `a much quieter day and a missing app are flagged`() {
+        val report = DeviationFinder.find(history(), emptyList(), emptyList(), d(21), now, ZONE)
+        val today = report.days.filter { it.date == d(21) }
+        assertTrue(today.any { it.kind == DeviationKind.LESS_USE && it.partialDay })
+        assertTrue(today.any { it.kind == DeviationKind.APP_DROP && it.subject == "A" })
+        assertTrue(today.first { it.kind == DeviationKind.LESS_USE }.notable)
+    }
+
+    @Test
+    fun `several quieter days in a row become a routine change`() {
+        val shift = DeviationFinder.find(history(), emptyList(), emptyList(), d(21), now, ZONE).shift!!
+        assertEquals(d(19), shift.since)
+        assertTrue(shift.less)
+        assertEquals("A", shift.appChanges.first().app)
+    }
+
+    @Test
+    fun `a labelled period explains its days and keeps them out of usual`() {
+        val periods = listOf(LabelledPeriod(d(19), d(21), "Exams"))
+        val report = DeviationFinder.find(history(), emptyList(), emptyList(), d(21), now, ZONE, periods)
+        assertEquals("Exams", report.shift?.label)
+        val today = report.days.filter { it.date == d(21) }
+        assertTrue(today.isNotEmpty())
+        assertTrue(today.all { it.explainedBy == "Exams" && !it.notable })
+    }
+
+    @Test
+    fun `evening summary only between 21 and 23, once`() {
+        val dev = DayDeviation(d(21), DeviationKind.LESS_USE, "Quieter day", "x", "ALL", 3f, now, false)
+        assertFalse(PromptPolicy.canSendDeviationSummary(true, listOf(dev), emptyList(), at(d(21), 20), ZONE))
+        assertTrue(PromptPolicy.canSendDeviationSummary(true, listOf(dev), emptyList(), at(d(21), 21, 30), ZONE))
+        assertFalse(
+            PromptPolicy.canSendDeviationSummary(true, listOf(dev), listOf(SentPrompt(PromptKind.DEVIATIONS, at(d(21), 21))), at(d(21), 21, 30), ZONE),
+        )
+    }
+}
+
+class NextAppModelTest {
+    @Test
+    fun `share sheets and pickers are skipped when learning what comes next`() {
+        val sessions = mutableListOf<UsageSession>()
+        for (day in 1..6) {
+            var minute = 0
+            repeat(10) {
+                sessions += s("A", d(day), 10 + minute / 60, minute % 60, 1)
+                val pick = at(d(day), 10 + (minute + 1) / 60, (minute + 1) % 60)
+                sessions += UsageSession("com.google.android.photopicker", "Photo picker", AppCategory.TOOLS, pick, pick + MIN, MIN)
+                sessions += s("B", d(day), 10 + (minute + 2) / 60, (minute + 2) % 60, 1)
+                minute += 4
+            }
+        }
+        val after = sessions.filter { it.appName == "A" }.maxOf { it.end } + 30_000
+        val guess = NextAppModel.predict(sessions.filter { it.start < after - 30_000 || it.appName == "A" }, after, ZONE)
+        assertEquals("B", guess.first().appName)
+        assertTrue(guess.none { it.appName == "Photo picker" })
     }
 }

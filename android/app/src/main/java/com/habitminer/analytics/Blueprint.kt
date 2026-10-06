@@ -56,13 +56,17 @@ object DaySelector {
         return out
     }
 
-    /** Same weekday/weekend type when at least two exist, otherwise all full days. */
+    /**
+     * Same weekday/weekend type when at least two exist, otherwise all full days. Days in
+     * [excluded] (periods you labelled, like exams) are left out of "usual".
+     */
     fun comparable(
         sessions: List<UsageSession>,
         today: LocalDate,
         zone: ZoneId,
+        excluded: Set<LocalDate> = emptySet(),
     ): DaySelection {
-        val all = fullDays(sessions, today, zone)
+        val all = fullDays(sessions, today, zone).filter { it !in excluded }
         val weekend = TimeUtil.isWeekend(today)
         val same = all.filter { TimeUtil.isWeekend(it) == weekend }
         val label = if (weekend) "weekend" else "weekday"
@@ -171,8 +175,9 @@ object TypicalDay {
         today: LocalDate,
         now: Long,
         zone: ZoneId,
+        excluded: Set<LocalDate> = emptySet(),
     ): TypicalDayCurve? {
-        val selection = DaySelector.comparable(sessions, today, zone)
+        val selection = DaySelector.comparable(sessions, today, zone, excluded)
         if (selection.days.isEmpty()) return null
         val byDay = DaySelector.byDay(sessions, zone)
         val curves = selection.days.map { cumulative(byDay[it].orEmpty(), it, zone) }

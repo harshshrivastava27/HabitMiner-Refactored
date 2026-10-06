@@ -50,7 +50,6 @@ import com.habitminer.analytics.Format
 import com.habitminer.analytics.PredictabilityResult
 import com.habitminer.analytics.SleepEstimate
 import com.habitminer.analytics.WeekComparison
-import com.habitminer.engine.AnalyticsMappers
 import com.habitminer.engine.HabitUiState
 import com.habitminer.engine.HabitActions
 import com.habitminer.ui.components.BodyText
@@ -81,7 +80,7 @@ fun InsightsScreen(
     var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab) }
     val tabs = listOf("Routines", "Deviations", "Blueprint")
 
-    if (state.insights == null && state.discoveredHabits.isEmpty() && state.recentDeviations.isEmpty()) {
+    if (state.insights == null && state.discoveredHabits.isEmpty()) {
         LoadingState(message = "Analysing your data…\nThis takes a few seconds the first time.")
         return
     }
@@ -113,6 +112,18 @@ fun InsightsScreen(
 
 private fun LazyListScope.routinesTab(state: HabitUiState) {
     item { PredictabilityCard(state.insights?.predictability) }
+    state.insights?.recentGuesses?.takeIf { it.isNotEmpty() }?.let { guesses ->
+        item {
+            SurfaceCard {
+                val hits = guesses.count { it.hit }
+                CardHeader("What it expected vs what you opened", Icons.Default.QuestionAnswer, trailing = "$hits of ${guesses.size} right")
+                Spacer(modifier = Modifier.height(6.dp))
+                RecentGuessesList(guesses, max = 10)
+                Spacer(modifier = Modifier.height(4.dp))
+                Hint("Your latest app switches. Each guess was made before the switch, using only what happened earlier.")
+            }
+        }
+    }
 
     val groups = state.insights?.patternGroups.orEmpty()
     item {
@@ -170,7 +181,11 @@ private fun PredictabilityCard(result: PredictabilityResult?) {
                 else -> "Your app switching varies a lot. That's normal, not good or bad."
             }
         BodyText(verdict)
-        Hint("Tested on ${result.testedTransitions} app switches from the last ${result.testDays} days, using a model trained on the days before.")
+        Hint(
+            "Tested on ${result.testedTransitions} app switches from the last ${result.testDays} days: before each switch it guesses, " +
+                "then learns from what you opened. It weighs what usually follows your current app, your last two apps, " +
+                "the hour of day and apps you used in the last hour, and favours recent days.",
+        )
     }
 }
 
@@ -185,21 +200,48 @@ private fun LazyListScope.deviationsTab(
     item {
         Column {
             Text(
-                text = "Unusual moments",
+                text = "Unusual days",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
             )
-            Hint("Times your phone use differed from your usual pattern. Tell us whether they were expected; your answers are saved as labels for evaluation.")
+            Hint(
+                "Each day, and today so far, compared with your usual days (same weekday or weekend type, last 4 weeks). " +
+                    "Shown in both directions when the difference is both unusual for you and large. " +
+                    "Your Expected / Unusual answers are saved as labels.",
+            )
         }
     }
-    if (state.recentDeviations.isEmpty()) {
-        item { InfoCard(title = "Nothing unusual", message = "No recent differences from your usual routine.") }
-    } else {
-        items(state.recentDeviations, key = { it.id }) { dev ->
-            DeviationCard(dev, state.deviationFeedback[AnalyticsMappers.fingerprint(dev)]) { value ->
-                viewModel.giveDeviationFeedback(dev, value)
+    val insights = state.insights
+    if (insights == null) {
+        item { InfoCard(title = "Analysing…", message = "Your recent days appear in a few seconds.") }
+        return
+    }
+    insights.deviations.shift?.let { shift ->
+        item(key = shift.key) {
+            RoutineShiftCard(shift, insights.answers[shift.key]) { value -> viewModel.labelPeriod(shift.key, shift.since, value) }
+        }
+    }
+    val days = insights.deviations.days
+    if (days.isEmpty()) {
+        item { InfoCard(title = "Nothing unusual", message = "No clear differences from your usual days this week.") }
+        return
+    }
+    days.groupBy { it.date }.forEach { (date, list) ->
+        item(key = "day-$date") {
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    dayLabel(date),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                list.firstNotNullOfOrNull { it.explainedBy }?.let { Hint(it) }
             }
+        }
+        items(list, key = { it.key }) { dev ->
+            DeviationCard(dev, state.deviationFeedback[dev.key], showDay = false) { value -> viewModel.giveDeviationFeedback(dev.key, value) }
         }
     }
 }

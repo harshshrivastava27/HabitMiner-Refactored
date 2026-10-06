@@ -20,6 +20,7 @@ class ExportManager
         private val contextRepository: com.habitminer.repository.ContextRepository,
         private val habitRepository: com.habitminer.repository.HabitRepository,
         private val feedbackRepository: com.habitminer.repository.FeedbackRepository,
+        private val usageDataCollector: com.habitminer.collection.UsageDataCollector,
     ) {
         suspend fun exportDataToCsv(): String? {
             try {
@@ -131,10 +132,23 @@ class ExportManager
                     }
                 }
 
-                // 8. Zip everything
+                // 8. Unlocks and notifications: what this app recorded, plus the system's unlock
+                //    history (Android keeps about a week), for pickup and sleep analysis.
+                val eventsFile = File(exportDir, "device_events_$timestamp.csv")
+                val events = contextRepository.getAllDeviceEvents()
+                val systemUnlocks =
+                    runCatching { usageDataCollector.getUnlockTimesSince(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000) }
+                        .getOrNull().orEmpty()
+                FileWriter(eventsFile).use { writer ->
+                    writer.append("eventType,packageName,timestamp,source\n")
+                    events.forEach { writer.append("${escapeCsv(it.eventType)},${escapeCsv(it.packageName ?: "")},${it.timestamp},app\n") }
+                    systemUnlocks.forEach { writer.append("UNLOCK,,$it,system\n") }
+                }
+
+                // 9. Zip everything
                 val zipFile = File(exportDir, "habitminer_export_$timestamp.zip")
                 java.util.zip.ZipOutputStream(java.io.FileOutputStream(zipFile)).use { zos ->
-                    listOf(usageFile, contextFile, habitsFile, baselinesFile, deviationsFile, labelsFile, placesFile).forEach { file ->
+                    listOf(usageFile, contextFile, habitsFile, baselinesFile, deviationsFile, labelsFile, placesFile, eventsFile).forEach { file ->
                         if (file.exists()) {
                             zos.putNextEntry(java.util.zip.ZipEntry(file.name))
                             file.inputStream().use { it.copyTo(zos) }

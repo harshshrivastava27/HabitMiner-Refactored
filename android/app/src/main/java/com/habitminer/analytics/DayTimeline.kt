@@ -35,6 +35,8 @@ object DayTimelineBuilder {
         sleeps: List<SleepEstimate>,
         date: LocalDate,
         zone: ZoneId,
+        /** Naps you confirmed, (start, end); drawn in the sleep lane too. */
+        naps: List<Pair<Long, Long>> = emptyList(),
     ): DayTimelineData {
         val dayStart = TimeUtil.startOfDay(date, zone)
         val dayEnd = TimeUtil.startOfDay(date.plusDays(1), zone)
@@ -69,8 +71,9 @@ object DayTimelineBuilder {
                 }
 
         val bands =
-            sleeps.filter { it.wakeTime > dayStart && it.sleepStart < dayEnd }
-                .map { minute(it.sleepStart) to minute(it.wakeTime) }
+            (sleeps.map { it.sleepStart to it.wakeTime } + naps)
+                .filter { (start, end) -> end > dayStart && start < dayEnd }
+                .map { (start, end) -> minute(start) to minute(end) }
 
         val total = sessions.sumOf { TimeUtil.usageIn(it, dayStart, dayEnd) }
         return DayTimelineData(date, merged, marks, bands, total)

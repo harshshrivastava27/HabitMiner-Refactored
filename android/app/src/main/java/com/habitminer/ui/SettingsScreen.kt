@@ -102,7 +102,8 @@ fun SettingsScreen(
         SettingsSection(title = "Check-ins & reminders") {
             SettingsSwitch(
                 title = "Quick check-ins",
-                description = "Up to 3 one-tap \"what are you doing?\" questions a day, 09:00–22:00. Answers become labels for testing the app's guesses.",
+                description = "Up to 3 one-tap questions a day, 09:00–22:00: \"what are you doing?\", \"were you asleep?\" after a likely nap, " +
+                    "and \"what's going on?\" when your routine changes for a few days. Answers become labels for testing the app's guesses.",
                 checked = state.features.checkIns,
                 onChange = viewModel::setCheckInsEnabled,
             )
@@ -111,6 +112,12 @@ fun SettingsScreen(
                 description = "A heads-up after 25 minutes of late-night scrolling or gaming, or an hour straight in the day. Shares the 3-a-day limit.",
                 checked = state.features.nudges,
                 onChange = viewModel::setNudgesEnabled,
+            )
+            SettingsSwitch(
+                title = "Unusual-day summary",
+                description = "Around 21:00 on days that were clearly different from usual, with Expected / Unusual buttons. Shares the 3-a-day limit.",
+                checked = state.features.deviationAlerts,
+                onChange = viewModel::setDeviationAlertsEnabled,
             )
             SettingsSwitch(
                 title = "Weekly summary",

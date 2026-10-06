@@ -49,6 +49,15 @@ class HabitRepository
 
         suspend fun deleteDeviationsSince(startOfDayMs: Long) = deviationDao.deleteSince(startOfDayMs)
 
+        /** Replaces every stored deviation from [sinceMs] on with [deviations]. */
+        suspend fun replaceDeviationsSince(
+            sinceMs: Long,
+            deviations: List<DeviationEntity>,
+        ) {
+            deviationDao.deleteSince(sinceMs)
+            deviations.forEach { deviationDao.insert(it) }
+        }
+
         suspend fun clearOldData(retentionCutoffMs: Long) {
             habitDao.deleteOlderThan(retentionCutoffMs)
             // Baselines intentionally excluded: only 8 time-bins exist and they must

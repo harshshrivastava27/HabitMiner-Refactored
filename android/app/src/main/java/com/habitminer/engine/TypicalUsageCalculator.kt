@@ -42,6 +42,8 @@ object TypicalUsageCalculator {
         history: List<Interval>,
         nowMs: Long,
         calendarFactory: () -> Calendar = { Calendar.getInstance() },
+        /** Start-of-day times of days to leave out (periods you labelled, like exams). */
+        excludedDayStarts: Set<Long> = emptySet(),
     ): TypicalUsage? {
         val todayStart = startOfDay(nowMs, calendarFactory)
         val past = history.filter { it.startTime < todayStart && it.durationMs > 0 }
@@ -60,7 +62,7 @@ object TypicalUsageCalculator {
             allDays.add(cal.timeInMillis)
             cal.add(Calendar.DAY_OF_YEAR, 1)
         }
-        val candidateDays = if (allDays.size > 1) allDays.drop(1) else allDays
+        val candidateDays = (if (allDays.size > 1) allDays.drop(1) else allDays).filter { it !in excludedDayStarts }
 
         val sameType = candidateDays.filter { dayType(it, calendarFactory) == todayType }
         val (days, basis) =

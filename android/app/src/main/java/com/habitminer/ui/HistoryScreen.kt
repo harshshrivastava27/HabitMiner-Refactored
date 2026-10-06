@@ -132,13 +132,14 @@ fun HistoryScreen(
             SessionGrouper.group(sessions).filterNot { it.isOnlySystemNoise && it.totalMs < 2 * TimeUtil.MINUTE }
         }
     val timeline =
-        remember(sessions, state.historicalSnapshots, state.insights?.sleepNights) {
+        remember(sessions, state.historicalSnapshots, state.insights?.sleepNights, state.insights?.confirmedNaps) {
             DayTimelineBuilder.build(
                 sessions,
                 state.historicalSnapshots.map(AnalyticsMappers::sample),
                 state.insights?.sleepNights.orEmpty(),
                 TimeUtil.dateOf(state.selectedHistoryDate, zone),
                 zone,
+                naps = state.insights?.confirmedNaps.orEmpty(),
             )
         }
     val historyItems =

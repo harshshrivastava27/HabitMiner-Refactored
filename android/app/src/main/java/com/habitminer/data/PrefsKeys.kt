@@ -11,6 +11,7 @@ object PrefsKeys {
     const val CHECKINS_ENABLED = "checkins_enabled"
     const val NUDGES_ENABLED = "nudges_enabled"
     const val DIGEST_ENABLED = "digest_enabled"
+    const val DEVIATION_ALERTS_ENABLED = "deviation_alerts_enabled"
     const val PLACES_ENABLED = "places_enabled"
 
     // Bookkeeping for prompts and places

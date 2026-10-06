@@ -32,6 +32,10 @@ class FeedbackRepository
 
         fun getCheckIns(): Flow<List<UserLabelEntity>> = labelDao.getByKind(UserLabelEntity.KIND_CHECK_IN)
 
+        /** Nap and period answers, read once (for background prompts). */
+        suspend fun napAndPeriodLabels(): List<UserLabelEntity> =
+            labelDao.getByKindOnce(UserLabelEntity.KIND_NAP) + labelDao.getByKindOnce(UserLabelEntity.KIND_PERIOD)
+
         suspend fun saveCheckIn(
             value: String,
             promptedAt: Long?,
@@ -65,6 +69,55 @@ class FeedbackRepository
                 ),
             )
         }
+
+        /** "Were you asleep?" — one answer per nap; a new answer replaces the old one. */
+        suspend fun saveNapAnswer(
+            napKey: String,
+            asleep: Boolean,
+            contextJson: String?,
+        ) {
+            labelDao.deleteByRef(UserLabelEntity.KIND_NAP, napKey)
+            labelDao.insert(
+                UserLabelEntity(
+                    timestamp = System.currentTimeMillis(),
+                    kind = UserLabelEntity.KIND_NAP,
+                    value = if (asleep) UserLabelEntity.NAP_ASLEEP else UserLabelEntity.NAP_AWAKE,
+                    refKey = napKey,
+                    contextJson = contextJson,
+                ),
+            )
+        }
+
+        /** What a stretch of unusual days was; [from] is the first day of the change. */
+        suspend fun savePeriodLabel(
+            periodKey: String,
+            value: String,
+            from: java.time.LocalDate,
+            until: java.time.LocalDate,
+        ) {
+            labelDao.deleteByRef(UserLabelEntity.KIND_PERIOD, periodKey)
+            labelDao.insert(
+                UserLabelEntity(
+                    timestamp = System.currentTimeMillis(),
+                    kind = UserLabelEntity.KIND_PERIOD,
+                    value = value,
+                    refKey = periodKey,
+                    contextJson = periodJson(from, until),
+                ),
+            )
+        }
+
+        /** Moves a labelled period's last day forward while the change continues. */
+        suspend fun extendPeriod(
+            periodKey: String,
+            from: java.time.LocalDate,
+            until: java.time.LocalDate,
+        ) = labelDao.updateContext(UserLabelEntity.KIND_PERIOD, periodKey, periodJson(from, until))
+
+        private fun periodJson(
+            from: java.time.LocalDate,
+            until: java.time.LocalDate,
+        ): String = "{\"from\":\"$from\",\"until\":\"$until\"}"
 
         // ---- Places -----------------------------------------------------------------------
 

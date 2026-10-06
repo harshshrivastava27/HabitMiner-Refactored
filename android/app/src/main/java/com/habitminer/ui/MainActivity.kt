@@ -72,6 +72,10 @@ class MainActivity : ComponentActivity() {
                             insightsTab = 2
                             go(Screen.Insights.route)
                         }
+                        com.habitminer.proactive.Notifier.OPEN_DEVIATIONS -> {
+                            insightsTab = 1
+                            go(Screen.Insights.route)
+                        }
                     }
                     if (open != null) pendingOpen.value = null
                 }

@@ -30,6 +30,16 @@ interface LabelDao {
         refKey: String,
     )
 
+    @Query("SELECT * FROM user_labels WHERE kind = :kind ORDER BY timestamp DESC")
+    suspend fun getByKindOnce(kind: String): List<UserLabelEntity>
+
+    @Query("UPDATE user_labels SET contextJson = :json WHERE kind = :kind AND refKey = :refKey")
+    suspend fun updateContext(
+        kind: String,
+        refKey: String,
+        json: String,
+    )
+
     @Query("DELETE FROM user_labels WHERE timestamp < :timestampMs")
     suspend fun deleteOlderThan(timestampMs: Long)
 

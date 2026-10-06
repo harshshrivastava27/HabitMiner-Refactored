@@ -7,6 +7,11 @@ import com.habitminer.analytics.ContextInsights
 import com.habitminer.analytics.ContextSample
 import com.habitminer.analytics.DayTypeClusterer
 import com.habitminer.analytics.DayTypes
+import com.habitminer.analytics.DeviationReport
+import com.habitminer.analytics.GuessRecord
+import com.habitminer.analytics.LabelledPeriod
+import com.habitminer.analytics.NapCandidate
+import com.habitminer.analytics.NextAppModel
 import com.habitminer.analytics.Heatmap
 import com.habitminer.analytics.HeatmapData
 import com.habitminer.analytics.PatternGroup
@@ -16,7 +21,6 @@ import com.habitminer.analytics.PickupAnalyzer
 import com.habitminer.analytics.PickupStats
 import com.habitminer.analytics.PlaceInference
 import com.habitminer.analytics.PlaceUsage
-import com.habitminer.analytics.PredictabilityEvaluator
 import com.habitminer.analytics.PredictabilityResult
 import com.habitminer.analytics.SessionGrouper
 import com.habitminer.analytics.SleepDetector
@@ -35,6 +39,7 @@ import com.habitminer.data.AppUsageEntity
 import com.habitminer.data.ContextSnapshotEntity
 import com.habitminer.data.DiscoveredHabitEntity
 import com.habitminer.data.PlaceEntity
+import com.habitminer.data.UserLabelEntity
 import com.habitminer.domain.AppIdentityResolver
 import com.habitminer.repository.ContextRepository
 import java.time.ZoneId
@@ -59,6 +64,19 @@ data class InsightsBundle(
     val placeUsage: List<PlaceUsage>,
     /** Display name for each place hash: the user's label or a suggestion. */
     val placeNames: Map<String, String>,
+    // ---- v1.3 ----
+    /** Differences from your usual days (last week + today so far) and any multi-day change. */
+    val deviations: DeviationReport = DeviationReport(emptyList(), null),
+    /** Likely naps yesterday and today, oldest first. */
+    val naps: List<NapCandidate> = emptyList(),
+    /** Naps you confirmed, (start, end). */
+    val confirmedNaps: List<Pair<Long, Long>> = emptyList(),
+    /** Nap and routine-change answers by key. */
+    val answers: Map<String, String> = emptyMap(),
+    /** Periods you labelled (exams…), left out of "usual". */
+    val periods: List<LabelledPeriod> = emptyList(),
+    /** What the next-app model guessed before your latest app switches, newest first. */
+    val recentGuesses: List<GuessRecord> = emptyList(),
 ) {
     /** The night that ended this morning, if detected. */
     val lastNight: SleepEstimate? get() = sleepNights.lastOrNull()
@@ -71,12 +89,14 @@ class InsightsComputer
         private val appIdentityResolver: AppIdentityResolver,
         private val usageDataCollector: UsageDataCollector,
         private val contextRepository: ContextRepository,
+        private val routineAnalysis: RoutineAnalysis,
     ) {
         suspend fun compute(
             allUsage: List<AppUsageEntity>,
             snapshots: List<ContextSnapshotEntity>,
             habits: List<DiscoveredHabitEntity>,
             places: List<PlaceEntity>,
+            labels: List<UserLabelEntity> = emptyList(),
             now: Long = System.currentTimeMillis(),
             zone: ZoneId = ZoneId.systemDefault(),
         ): InsightsBundle {
@@ -107,7 +127,11 @@ class InsightsComputer
             val weekSessions = sessions.filter { it.start >= weekStart }
             val weekSamples = samples.filter { it.timestamp >= weekStart }
 
-            val nights = SleepDetector.detectRange(sessions, unlocks, samples, today, 7, now, zone)
+            val routine = routineAnalysis.run(sessions, samples, unlocks, labels, places, now, zone)
+            val nights = routine.nights.takeLast(7)
+            val excluded =
+                routine.periods.flatMap { p -> generateSequence(p.from) { it.plusDays(1) }.takeWhile { !it.isAfter(p.to) }.toList() }.toSet()
+            val guesses = NextAppModel.evaluate(sessions, now, zone)
 
             val pickups =
                 if (unlocks.isEmpty()) {
@@ -133,13 +157,19 @@ class InsightsComputer
                 pickupsToday = pickups,
                 contextInsights = ContextInsights.compute(weekSessions, weekSamples, zone),
                 heatmap = Heatmap.build(sessions, today, zone),
-                typicalDay = TypicalDay.build(sessions, today, now, zone),
+                typicalDay = TypicalDay.build(sessions, today, now, zone, excluded),
                 dayTypes = DayTypeClusterer.cluster(sessions, today, zone),
                 week = WeekComparer.compare(sessions, today, zone),
-                predictability = PredictabilityEvaluator.evaluate(sessions, now, zone),
+                predictability = guesses.result,
                 patternGroups = PatternGrouper.group(patternRows),
                 placeUsage = ContextInsights.byPlace(weekSessions, weekSamples, zone) { placeNames[it] ?: "Unnamed place" },
                 placeNames = placeNames,
+                deviations = routine.deviations,
+                naps = routine.naps,
+                confirmedNaps = routine.confirmedNaps,
+                answers = routine.answers,
+                periods = routine.periods,
+                recentGuesses = guesses.recent,
             )
         }
 

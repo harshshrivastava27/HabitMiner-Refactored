@@ -1,6 +1,15 @@
 package com.habitminer.ui
 
+import com.habitminer.analytics.AppChange
+import com.habitminer.analytics.AppGuess
+import com.habitminer.analytics.Confidence
 import com.habitminer.analytics.ContextInsights
+import com.habitminer.analytics.DayDeviation
+import com.habitminer.analytics.DeviationKind
+import com.habitminer.analytics.DeviationReport
+import com.habitminer.analytics.GuessRecord
+import com.habitminer.analytics.NapCandidate
+import com.habitminer.analytics.RoutineShift
 import com.habitminer.analytics.DayTypeClusterer
 import com.habitminer.analytics.Heatmap
 import com.habitminer.analytics.PatternGrouper
@@ -15,13 +24,11 @@ import com.habitminer.analytics.TypicalDay
 import com.habitminer.analytics.WeekComparer
 import com.habitminer.data.AppUsageEntity
 import com.habitminer.data.ContextSnapshotEntity
-import com.habitminer.data.DeviationEntity
 import com.habitminer.data.DiscoveredHabitEntity
 import com.habitminer.engine.AnalyticsMappers
 import com.habitminer.engine.FeatureSettings
 import com.habitminer.engine.HabitUiState
 import com.habitminer.engine.InsightsBundle
-import com.habitminer.engine.PredictionEngine
 import com.habitminer.engine.TypicalUsageCalculator
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -192,28 +199,56 @@ object SampleData {
                 DiscoveredHabitEntity(5, "☀️ Afternoon Brave Routine", "Brave → YT (drifty)", "[]", 0.7f, 7, "AFTERNOON", "WEEKDAY", now, now - 30 * 3_600_000L),
             )
 
+        val min = 60_000L
         val deviations =
             listOf(
-                DeviationEntity(
-                    id = 1,
-                    timestamp = TimeUtil.at(today, 9, 12, zone),
-                    timeBin = "WEEKEND_MORNING",
-                    deviationType = "NEW_BEHAVIOR",
-                    description = "You used Meet for 58m this morning. It isn't usually part of your mornings.",
-                    zScore = 2f,
-                    normalizedScore = 0.8f,
-                    affectedCategory = "Meet",
+                DayDeviation(
+                    today, DeviationKind.LESS_USE, "Quieter than usual so far",
+                    "1h 35m on your phone by 18:45, usually about 3h 33m by now. Mostly in the afternoon (−1h 10m).",
+                    "ALL", 3.1f, now, true,
                 ),
-                DeviationEntity(
-                    id = 2,
-                    timestamp = TimeUtil.at(today, 2, 40, zone),
-                    timeBin = "WEEKEND_NIGHT",
-                    deviationType = "EXCESS_DURATION",
-                    description = "3h 10m on your phone tonight, compared with about 2h by now on a usual day. Most of it was Evony.",
-                    zScore = 2.4f,
-                    normalizedScore = 0.9f,
-                    affectedCategory = "Evony",
+                DayDeviation(
+                    today, DeviationKind.APP_DROP, "Much less Evony",
+                    "2m by 18:45, usually about 48m by now.",
+                    "Evony", 2f, now, true,
                 ),
+                DayDeviation(
+                    today.minusDays(1), DeviationKind.APP_SPIKE, "More WhatsApp than usual",
+                    "1h 20m, usually about 22m.",
+                    "WhatsApp", 4.5f, now - 20 * 60 * min, false,
+                ),
+                DayDeviation(
+                    today.minusDays(2), DeviationKind.LATE_NIGHT, "More late-night phone use",
+                    "3h 25m between midnight and 6:00, usually about 1h 3m.",
+                    "LATE_NIGHT", 5.1f, now - 40 * 60 * min, false,
+                ),
+            )
+        val shift =
+            RoutineShift(
+                since = today.minusDays(2),
+                days = 3,
+                change = -0.33f,
+                avgPerDayMs = 214 * min,
+                usualPerDayMs = 317 * min,
+                appChanges =
+                    listOf(
+                        AppChange("Evony", 88 * min, 59 * min),
+                        AppChange("YT (drifty)", 47 * min, 19 * min),
+                        AppChange("Instagram", 3 * min, 20 * min),
+                    ),
+            )
+        val nap =
+            NapCandidate(
+                TimeUtil.at(today, 14, 8, zone), TimeUtil.at(today, 17, 1, zone), Confidence.HIGH,
+                listOf("no steps", "dark room when you picked the phone up"),
+            )
+        val guesses =
+            listOf(
+                GuessRecord(now - 12 * min, "Snapchat", listOf("WhatsApp", "Telegram", "Superset"), "Telegram"),
+                GuessRecord(now - 25 * min, "Superset", listOf("Snapchat", "WhatsApp", "Google"), "Snapchat"),
+                GuessRecord(now - 25 * min - 20_000, "WhatsApp", listOf("Snapchat", "Telegram", "Google"), "Superset"),
+                GuessRecord(now - 55 * min, "Telegram", listOf("Snapchat", "WhatsApp", "Gmail"), "Snapchat"),
+                GuessRecord(now - 58 * min, "Snapchat", listOf("Telegram", "WhatsApp", "Instagram"), "Telegram"),
             )
 
         val bundle =
@@ -232,6 +267,9 @@ object SampleData {
                 patternGroups = PatternGrouper.group(habits.map { PatternRow(it.patternDescription, it.timeSlot, it.dayType, it.occurrenceCount, it.confidence, it.lastSeenAt) }),
                 placeUsage = emptyList(),
                 placeNames = emptyMap(),
+                deviations = DeviationReport(deviations, shift),
+                naps = listOf(nap),
+                recentGuesses = guesses,
             )
 
         val typical =
@@ -252,15 +290,13 @@ object SampleData {
                 todayAppUsage = todayUsage.sortedByDescending { it.startTime }.toImmutableList(),
                 todaySnapshots = todaySnapshots.toImmutableList(),
                 discoveredHabits = habits.toImmutableList(),
-                todayDeviations = deviations.toImmutableList(),
-                recentDeviations = deviations.toImmutableList(),
-                overallDeviationScore = 0.9f,
                 predictions =
                     listOf(
-                        PredictionEngine.Prediction("Telegram", 0.34f, ""),
-                        PredictionEngine.Prediction("WhatsApp", 0.22f, ""),
-                        PredictionEngine.Prediction("YT (drifty)", 0.14f, ""),
+                        AppGuess("Snapchat", 0.25f),
+                        AppGuess("WhatsApp", 0.21f),
+                        AppGuess("Google", 0.10f),
                     ).toImmutableList(),
+                predictionsAfter = "Telegram",
                 hasEnoughData = true,
                 baselineStatus = "Model up to date · 14 days",
                 latestContext = todaySnapshots.lastOrNull(),

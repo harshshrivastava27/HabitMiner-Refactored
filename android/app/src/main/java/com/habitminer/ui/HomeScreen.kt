@@ -57,10 +57,9 @@ import com.habitminer.analytics.InsightKind
 import com.habitminer.analytics.PatternGroup
 import com.habitminer.analytics.PickupStats
 import com.habitminer.analytics.SleepEstimate
+import com.habitminer.analytics.TimeUtil
 import com.habitminer.analytics.SleepSummary
-import com.habitminer.data.DeviationEntity
 import com.habitminer.data.UserLabelEntity
-import com.habitminer.engine.AnalyticsMappers
 import com.habitminer.engine.HabitUiState
 import com.habitminer.engine.HabitActions
 import com.habitminer.engine.TypicalUsageCalculator
@@ -121,12 +120,16 @@ fun HomeScreen(
             CheckInCard(onAnswer = viewModel::answerCheckIn, onDismiss = viewModel::dismissCheckIn)
         }
 
+        TodayNapQuestion(state, viewModel)
+
         TodayUsageCard(state)
 
         val insights = state.insights
-        insights?.lastNight?.let { SleepCard(it, insights.sleepSummary) }
+        insights?.lastNight?.let { SleepCard(it, insights.sleepSummary, insights.confirmedNaps) }
 
         PickupsCard(state.todayUnlocks, insights?.pickupsToday)
+
+        TodayRoutineShift(state, viewModel)
 
         TodayDeviationCard(state, viewModel)
 
@@ -335,6 +338,7 @@ private fun TypicalComparison(
 fun SleepCard(
     night: SleepEstimate,
     summary: SleepSummary?,
+    confirmedNaps: List<Pair<Long, Long>> = emptyList(),
 ) {
     val zone = java.time.ZoneId.systemDefault()
     SurfaceCard {
@@ -345,6 +349,15 @@ fun SleepCard(
             StatBlock("Duration", Format.duration(night.durationMs), alignEnd = true)
         }
         Spacer(modifier = Modifier.height(10.dp))
+        if (night.briefWakes.isNotEmpty()) {
+            val times =
+                night.briefWakes.joinToString(", ") { w -> Format.clock(w.start, zone) + if (w.alarm) " (alarm)" else "" }
+            BodyText("Woke briefly ${night.briefWakes.size}× ($times) and went back to sleep.")
+        }
+        val dayStart = TimeUtil.startOfDay(night.wakeDate, zone)
+        confirmedNaps.filter { it.first >= dayStart }.forEach { (start, end) ->
+            BodyText("Nap: ${Format.clock(start, zone)}–${Format.clock(end, zone)} (${Format.duration(end - start)}).")
+        }
         if (night.preSleepUseMs > 0) {
             val dark = night.preSleepDarkShare?.let { ", ${Format.percent(it)} of it in the dark" } ?: ""
             BodyText("Phone use in the hour before sleep: ${Format.duration(night.preSleepUseMs)}$dark.")
@@ -363,7 +376,10 @@ fun SleepCard(
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
-        Hint("Estimated from when your screen was off overnight, plus charging and darkness.")
+        Hint(
+            "Estimated from when your screen was off overnight. A quick check or an alarm doesn't end the night " +
+                "unless the step counter sees you get up. Charging and darkness raise the confidence.",
+        )
     }
 }
 
@@ -394,42 +410,47 @@ fun PickupsCard(
     }
 }
 
+/** Today's most notable difference from usual, unless you already said it was expected. */
 @Composable
 fun TodayDeviationCard(
     state: HabitUiState,
     viewModel: HabitActions,
 ) {
-    val candidates =
-        state.todayDeviations.filter { state.deviationFeedback[AnalyticsMappers.fingerprint(it)] != UserLabelEntity.FEEDBACK_EXPECTED }
-    val dev = candidates.maxByOrNull { it.normalizedScore } ?: return
-    DeviationCard(dev, state.deviationFeedback[AnalyticsMappers.fingerprint(dev)]) { value -> viewModel.giveDeviationFeedback(dev, value) }
+    val today = java.time.LocalDate.now()
+    val dev =
+        state.insights?.deviations?.days
+            ?.filter { it.date == today && it.explainedBy == null && state.deviationFeedback[it.key] != UserLabelEntity.FEEDBACK_EXPECTED }
+            ?.maxByOrNull { it.score } ?: return
+    DeviationCard(dev, state.deviationFeedback[dev.key], showDay = false) { value -> viewModel.giveDeviationFeedback(dev.key, value) }
 }
 
-/** A deviation with plain wording and Expected / Unusual buttons. */
+/** A likely nap from today or yesterday that you haven't answered yet. */
 @Composable
-fun DeviationCard(
-    dev: DeviationEntity,
-    feedback: String?,
-    onFeedback: (String) -> Unit,
+fun TodayNapQuestion(
+    state: HabitUiState,
+    viewModel: HabitActions,
 ) {
-    SurfaceCard {
-        CardHeader(Labels.deviationTitle(dev.deviationType), Icons.Default.TrendingUp, tint = StatusWarning, trailing = Labels.dayTime(dev.timestamp))
-        Spacer(modifier = Modifier.height(8.dp))
-        BodyText(dev.description)
-        Spacer(modifier = Modifier.height(10.dp))
-        when (feedback) {
-            UserLabelEntity.FEEDBACK_EXPECTED -> Hint("You marked this as expected. Thanks, this helps tune what counts as unusual.")
-            UserLabelEntity.FEEDBACK_UNUSUAL -> Hint("You marked this as unusual. Thanks for confirming.")
-            else -> {
-                Hint("Was this expected?")
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onFeedback(UserLabelEntity.FEEDBACK_EXPECTED) }) { Text("Expected") }
-                    OutlinedButton(onClick = { onFeedback(UserLabelEntity.FEEDBACK_UNUSUAL) }) { Text("Unusual") }
-                }
-            }
-        }
-    }
+    val insights = state.insights ?: return
+    val now = System.currentTimeMillis()
+    val nap =
+        insights.naps.lastOrNull {
+            it.confidence != com.habitminer.analytics.Confidence.LOW &&
+                it.key !in insights.answers &&
+                now - it.end <= 12 * TimeUtil.HOUR
+        } ?: return
+    NapQuestionCard(nap) { asleep -> viewModel.answerNap(nap.key, asleep) }
+}
+
+/** An unanswered routine change ("since Sun 4 Oct, 33% less…"). */
+@Composable
+fun TodayRoutineShift(
+    state: HabitUiState,
+    viewModel: HabitActions,
+) {
+    val insights = state.insights ?: return
+    val shift = insights.deviations.shift ?: return
+    if (shift.label != null || shift.key in insights.answers) return
+    RoutineShiftCard(shift, null) { value -> viewModel.labelPeriod(shift.key, shift.since, value) }
 }
 
 @Composable
@@ -541,18 +562,26 @@ private fun ContextChip(text: String) {
 
 @Composable
 fun LikelyNextCard(state: HabitUiState) {
-    val predictions = state.predictions.filter { it.confidence >= 0.12f }
-    if (predictions.isEmpty() || predictions.first().confidence < 0.2f) return
+    val predictions = state.predictions
+    if (predictions.isEmpty()) return
     SurfaceCard {
-        CardHeader("Likely next app", Icons.Default.Insights)
+        CardHeader("Likely next app", Icons.Default.Insights, trailing = state.predictionsAfter?.let { "after $it" })
         Spacer(modifier = Modifier.height(8.dp))
         predictions.take(3).forEach { p ->
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 BodyText(p.appName)
-                Pill(Format.percent(p.confidence))
+                Pill(Format.percent(p.share))
             }
         }
+        state.insights?.recentGuesses?.firstOrNull()?.let { g ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Hint("Its last guess:")
+            RecentGuessesList(listOf(g), max = 1)
+        }
         Spacer(modifier = Modifier.height(4.dp))
-        Hint("A guess from what you usually open next at this time of day.")
+        Hint(
+            "Learns from your app switches as you go, weighting recent days more. " +
+                "Insights → Routines shows how often it's right.",
+        )
     }
 }

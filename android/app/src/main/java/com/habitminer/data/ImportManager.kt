@@ -24,6 +24,7 @@ class ImportManager
         private val contextDao: ContextDao,
         private val labelDao: LabelDao,
         private val placeDao: PlaceDao,
+        private val deviceEventDao: DeviceEventDao,
     ) {
         data class Result(
             val usage: Int,
@@ -54,6 +55,7 @@ class ImportManager
                             name.startsWith("context_snapshots") -> snapshots += importSnapshots(rows).also { files++ }
                             name.startsWith("labels") -> labels += importLabels(rows).also { files++ }
                             name.startsWith("places") -> places += importPlaces(rows).also { files++ }
+                            name.startsWith("device_events") -> importDeviceEvents(rows).also { files++ }
                             else -> Unit // habits, baselines, deviations are recomputed
                         }
                     }
@@ -151,6 +153,21 @@ class ImportManager
                     }.getOrNull()
                 }
             if (parsed.isNotEmpty()) labelDao.insertAll(parsed)
+            return parsed.size
+        }
+
+        /** Unlocks and notifications this app recorded (system unlock history stays on the phone). */
+        private suspend fun importDeviceEvents(rows: List<Map<String, String>>): Int {
+            val existing = deviceEventDao.getKeys().toHashSet()
+            val parsed =
+                rows.mapNotNull { r ->
+                    if (r["source"] == "system") return@mapNotNull null
+                    val type = r["eventType"]?.ifEmpty { null } ?: return@mapNotNull null
+                    val ts = r["timestamp"]?.toLongOrNull() ?: return@mapNotNull null
+                    if (!existing.add("$type:$ts")) return@mapNotNull null
+                    DeviceEventEntity(eventType = type, packageName = r["packageName"]?.ifEmpty { null }, timestamp = ts)
+                }
+            parsed.chunked(500).forEach { deviceEventDao.insertAll(it) }
             return parsed.size
         }
 
