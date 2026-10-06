@@ -66,6 +66,7 @@ import com.habitminer.engine.TypicalUsageCalculator
 import com.habitminer.ui.components.BodyText
 import com.habitminer.ui.components.CardHeader
 import com.habitminer.ui.components.Hint
+import com.habitminer.ui.components.InfoRow
 import com.habitminer.ui.components.Pill
 import com.habitminer.ui.components.SectionTitle
 import com.habitminer.ui.components.StatBlock
@@ -125,7 +126,7 @@ fun HomeScreen(
         TodayUsageCard(state)
 
         val insights = state.insights
-        insights?.lastNight?.let { SleepCard(it, insights.sleepSummary, insights.confirmedNaps) }
+        insights?.lastNight?.let { SleepCard(it, insights.sleepSummary, insights.sleepToday, insights.sleepWeek) }
 
         PickupsCard(state.todayUnlocks, insights?.pickupsToday)
 
@@ -338,26 +339,33 @@ private fun TypicalComparison(
 fun SleepCard(
     night: SleepEstimate,
     summary: SleepSummary?,
-    confirmedNaps: List<Pair<Long, Long>> = emptyList(),
+    today: com.habitminer.analytics.DailySleep? = null,
+    week: com.habitminer.analytics.SleepWeek? = null,
 ) {
     val zone = java.time.ZoneId.systemDefault()
+    val day = today?.takeIf { it.night?.wakeDate == night.wakeDate } ?: com.habitminer.analytics.DailySleep(night.wakeDate, night, emptyList())
     SurfaceCard {
-        CardHeader("Last night", Icons.Default.Bedtime, tint = Color(0xFF7986CB), trailing = "${night.confidence.label} confidence")
+        CardHeader("Sleep", Icons.Default.Bedtime, tint = Color(0xFF7986CB), trailing = "${night.confidence.label} confidence")
         Spacer(modifier = Modifier.height(10.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             StatBlock("Asleep (est.)", "${Format.clock(night.sleepStart, zone)} → ${Format.clock(night.wakeTime, zone)}")
-            StatBlock("Duration", Format.duration(night.durationMs), alignEnd = true)
+            StatBlock(
+                "Total today",
+                Format.duration(day.totalMs),
+                caption = if (day.naps.isEmpty()) "no naps yet" else "night ${Format.duration(day.nightMs)} + nap ${Format.duration(day.napMs)}",
+                alignEnd = true,
+            )
         }
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+        InfoRow("Night", "${Format.duration(day.nightMs)} asleep · ${Format.duration(day.inBedMs)} in bed")
         if (night.briefWakes.isNotEmpty()) {
-            val times =
-                night.briefWakes.joinToString(", ") { w -> Format.clock(w.start, zone) + if (w.alarm) " (alarm)" else "" }
-            BodyText("Woke briefly ${night.briefWakes.size}× ($times) and went back to sleep.")
+            val times = night.briefWakes.joinToString(", ") { w -> Format.clock(w.start, zone) + if (w.alarm) " alarm" else "" }
+            InfoRow("Woke briefly", "${night.briefWakes.size}× ($times)")
         }
-        val dayStart = TimeUtil.startOfDay(night.wakeDate, zone)
-        confirmedNaps.filter { it.first >= dayStart }.forEach { (start, end) ->
-            BodyText("Nap: ${Format.clock(start, zone)}–${Format.clock(end, zone)} (${Format.duration(end - start)}).")
+        day.naps.forEach { (start, end) ->
+            InfoRow("Nap", "${Format.clock(start, zone)}–${Format.clock(end, zone)} · ${Format.duration(end - start)}")
         }
+        Spacer(modifier = Modifier.height(4.dp))
         if (night.preSleepUseMs > 0) {
             val dark = night.preSleepDarkShare?.let { ", ${Format.percent(it)} of it in the dark" } ?: ""
             BodyText("Phone use in the hour before sleep: ${Format.duration(night.preSleepUseMs)}$dark.")
@@ -368,17 +376,24 @@ fun SleepCard(
                 night.firstAppAfterWake?.let { "first app after waking: $it" },
             ).joinToString(" · ")
         if (apps.isNotEmpty()) BodyText(apps.replaceFirstChar { it.uppercase() })
-        summary?.takeIf { it.nights >= 2 }?.let {
-            Spacer(modifier = Modifier.height(6.dp))
-            Hint(
-                "${it.nights}-night average: ${Format.duration(it.avgDurationMs)}, usually asleep around " +
-                    "${Format.clockFromMinutes(it.avgBedtimeMinutes)} and up around ${Format.clockFromMinutes(it.avgWakeMinutes)}.",
+        val averages =
+            listOfNotNull(
+                week?.takeIf { it.days >= 2 }?.let { w ->
+                    "${w.days}-day average: ${Format.duration(w.avgTotalMs)} a day" +
+                        if (w.napCount > 0) " (${w.napCount} nap${if (w.napCount == 1) "" else "s"} this week)." else "."
+                },
+                summary?.takeIf { it.nights >= 2 }?.let {
+                    "Usually asleep around ${Format.clockFromMinutes(it.avgBedtimeMinutes)} and up around ${Format.clockFromMinutes(it.avgWakeMinutes)}."
+                },
             )
+        if (averages.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Hint(averages.joinToString(" "))
         }
         Spacer(modifier = Modifier.height(4.dp))
         Hint(
-            "Estimated from when your screen was off overnight. A quick check or an alarm doesn't end the night " +
-                "unless the step counter sees you get up. Charging and darkness raise the confidence.",
+            "Total today = the night that ended this morning + naps you confirmed today. A quick check or an alarm " +
+                "doesn't end the night unless the step counter sees you get up.",
         )
     }
 }

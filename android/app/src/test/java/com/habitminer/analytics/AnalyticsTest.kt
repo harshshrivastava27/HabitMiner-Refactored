@@ -633,3 +633,33 @@ class NextAppModelTest {
         assertTrue(guess.none { it.appName == "Photo picker" })
     }
 }
+
+class SleepDaysTest {
+    private fun night(
+        wake: LocalDate,
+        hours: Int,
+    ) = SleepEstimate(wake, at(wake, 2), at(wake, 2 + hours), Confidence.HIGH, 0, null, null, null)
+
+    @Test
+    fun `naps are added to the day they happen, counted by wake date`() {
+        val nights = listOf(night(d(4), 6), night(d(5), 4))
+        val naps = listOf(at(d(5), 14) to at(d(5), 15, 30))
+        val days = SleepDays.build(nights, naps, d(5), 7, ZONE)
+        assertEquals(2, days.size)
+        val today = days.last()
+        assertEquals(4 * 60 * MIN, today.nightMs)
+        assertEquals(90 * MIN, today.napMs)
+        assertEquals((4 * 60 + 90) * MIN, today.totalMs)
+        val week = SleepDays.summarize(days, ZONE)!!
+        assertEquals(((6 * 60 + 5 * 60 + 30) * MIN) / 2, week.avgTotalMs)
+        assertEquals(1, week.napCount)
+    }
+
+    @Test
+    fun `a day with only a nap still counts`() {
+        val days = SleepDays.build(emptyList(), listOf(at(d(5), 14) to at(d(5), 15)), d(5), 7, ZONE)
+        assertEquals(1, days.size)
+        assertNull(days[0].night)
+        assertEquals(60 * MIN, days[0].totalMs)
+    }
+}

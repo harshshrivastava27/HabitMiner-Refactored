@@ -21,6 +21,7 @@ class ExportManager
         private val habitRepository: com.habitminer.repository.HabitRepository,
         private val feedbackRepository: com.habitminer.repository.FeedbackRepository,
         private val usageDataCollector: com.habitminer.collection.UsageDataCollector,
+        private val appIdentityResolver: com.habitminer.domain.AppIdentityResolver,
     ) {
         suspend fun exportDataToCsv(): String? {
             try {
@@ -145,10 +146,26 @@ class ExportManager
                     systemUnlocks.forEach { writer.append("UNLOCK,,$it,system\n") }
                 }
 
-                // 9. Zip everything
+                // 9. Sleep per day: the night that ended that morning + confirmed naps.
+                val sleepFile = File(exportDir, "sleep_days_$timestamp.csv")
+                FileWriter(sleepFile).use { writer ->
+                    writer.append("date,sleepStart,wakeTime,bedtime,wakeUp,nightAsleepMin,inBedMin,briefWakes,briefWakeMin,")
+                    writer.append("naps,napMin,totalMin,confidence\n")
+                    sleepDays(usages).forEach { d ->
+                        val n = d.night
+                        val zone = java.time.ZoneId.systemDefault()
+                        writer.append("${d.date},${n?.sleepStart ?: ""},${n?.wakeTime ?: ""},")
+                        writer.append("${n?.let { com.habitminer.analytics.Format.clock(it.sleepStart, zone) } ?: ""},")
+                        writer.append("${n?.let { com.habitminer.analytics.Format.clock(it.wakeTime, zone) } ?: ""},")
+                        writer.append("${d.nightMs / 60_000},${d.inBedMs / 60_000},${n?.briefWakes?.size ?: 0},${d.wakeUpMs / 60_000},")
+                        writer.append("${d.naps.size},${d.napMs / 60_000},${d.totalMs / 60_000},${n?.confidence?.name ?: ""}\n")
+                    }
+                }
+
+                // 10. Zip everything
                 val zipFile = File(exportDir, "habitminer_export_$timestamp.zip")
                 java.util.zip.ZipOutputStream(java.io.FileOutputStream(zipFile)).use { zos ->
-                    listOf(usageFile, contextFile, habitsFile, baselinesFile, deviationsFile, labelsFile, placesFile, eventsFile).forEach { file ->
+                    listOf(usageFile, contextFile, habitsFile, baselinesFile, deviationsFile, labelsFile, placesFile, eventsFile, sleepFile).forEach { file ->
                         if (file.exists()) {
                             zos.putNextEntry(java.util.zip.ZipEntry(file.name))
                             file.inputStream().use { it.copyTo(zos) }
@@ -168,6 +185,24 @@ class ExportManager
         companion object {
             private const val TAG = "ExportManager"
         }
+
+        /** Up to 90 days of sleep per day, computed the same way as in the app. */
+        private suspend fun sleepDays(usages: List<AppUsageEntity>): List<com.habitminer.analytics.DailySleep> =
+            runCatching {
+                val now = System.currentTimeMillis()
+                val zone = java.time.ZoneId.systemDefault()
+                val since = now - 90L * 24 * 60 * 60 * 1000
+                val sessions =
+                    usages.filter { it.startTime >= since }
+                        .filterNot { appIdentityResolver.isLauncher(it.packageName) }
+                        .map(com.habitminer.engine.AnalyticsMappers::session)
+                val samples = contextRepository.getSnapshotsSince(since).map(com.habitminer.engine.AnalyticsMappers::sample)
+                val unlocks = runCatching { usageDataCollector.getUnlockTimesSince(since) }.getOrNull().orEmpty()
+                val labels = feedbackRepository.getAllLabels().firstOrNull().orEmpty()
+                val today = java.time.LocalDate.now(zone)
+                val nights = com.habitminer.analytics.SleepDetector.detectRange(sessions, unlocks, samples, today, 90, now, zone)
+                com.habitminer.analytics.SleepDays.build(nights, com.habitminer.engine.LabelMappers.confirmedNaps(labels), today, 90, zone)
+            }.getOrDefault(emptyList())
 
         private fun escapeCsv(value: String): String {
             if (value.contains(",") || value.contains("\"") || value.contains("\n")) {

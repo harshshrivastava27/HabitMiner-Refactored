@@ -17,6 +17,7 @@ import com.habitminer.analytics.PatternRow
 import com.habitminer.analytics.PickupAnalyzer
 import com.habitminer.analytics.PredictabilityEvaluator
 import com.habitminer.analytics.SessionGrouper
+import com.habitminer.analytics.SleepDays
 import com.habitminer.analytics.SleepDetector
 import com.habitminer.analytics.TimeUtil
 import com.habitminer.analytics.TimedEvent
@@ -242,6 +243,12 @@ object SampleData {
                 TimeUtil.at(today, 14, 8, zone), TimeUtil.at(today, 17, 1, zone), Confidence.HIGH,
                 listOf("no steps", "dark room when you picked the phone up"),
             )
+        val confirmedNaps =
+            listOf(
+                TimeUtil.at(today.minusDays(1), 15, 0, zone) to TimeUtil.at(today.minusDays(1), 16, 20, zone),
+                TimeUtil.at(today.minusDays(3), 14, 30, zone) to TimeUtil.at(today.minusDays(3), 15, 15, zone),
+            )
+        val sleepDays = SleepDays.build(nights, confirmedNaps, today, 7, zone)
         val guesses =
             listOf(
                 GuessRecord(now - 12 * min, "Snapchat", listOf("WhatsApp", "Telegram", "Superset"), "Telegram"),
@@ -270,6 +277,9 @@ object SampleData {
                 deviations = DeviationReport(deviations, shift),
                 naps = listOf(nap),
                 recentGuesses = guesses,
+                sleepDays = sleepDays,
+                sleepWeek = SleepDays.summarize(sleepDays, zone),
+                confirmedNaps = confirmedNaps,
             )
 
         val typical =

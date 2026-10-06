@@ -6,6 +6,7 @@ import com.habitminer.analytics.ContextInsight
 import com.habitminer.analytics.ContextInsights
 import com.habitminer.analytics.ContextSample
 import com.habitminer.analytics.DayTypeClusterer
+import com.habitminer.analytics.DailySleep
 import com.habitminer.analytics.DayTypes
 import com.habitminer.analytics.DeviationReport
 import com.habitminer.analytics.GuessRecord
@@ -23,7 +24,9 @@ import com.habitminer.analytics.PlaceInference
 import com.habitminer.analytics.PlaceUsage
 import com.habitminer.analytics.PredictabilityResult
 import com.habitminer.analytics.SessionGrouper
+import com.habitminer.analytics.SleepDays
 import com.habitminer.analytics.SleepDetector
+import com.habitminer.analytics.SleepWeek
 import com.habitminer.analytics.SleepEstimate
 import com.habitminer.analytics.SleepSummary
 import com.habitminer.analytics.TimeUtil
@@ -77,7 +80,12 @@ data class InsightsBundle(
     val periods: List<LabelledPeriod> = emptyList(),
     /** What the next-app model guessed before your latest app switches, newest first. */
     val recentGuesses: List<GuessRecord> = emptyList(),
+    /** Night + confirmed naps for each of the last 7 days (by the day you woke up), oldest first. */
+    val sleepDays: List<DailySleep> = emptyList(),
+    val sleepWeek: SleepWeek? = null,
 ) {
+    /** Today's sleep: the night that ended this morning plus today's confirmed naps. */
+    val sleepToday: DailySleep? get() = sleepDays.lastOrNull()?.takeIf { it.date == java.time.Instant.ofEpochMilli(computedAt).atZone(ZoneId.systemDefault()).toLocalDate() }
     /** The night that ended this morning, if detected. */
     val lastNight: SleepEstimate? get() = sleepNights.lastOrNull()
 }
@@ -132,6 +140,7 @@ class InsightsComputer
             val excluded =
                 routine.periods.flatMap { p -> generateSequence(p.from) { it.plusDays(1) }.takeWhile { !it.isAfter(p.to) }.toList() }.toSet()
             val guesses = NextAppModel.evaluate(sessions, now, zone)
+            val sleepDays = SleepDays.build(routine.nights, routine.confirmedNaps, today, 7, zone)
 
             val pickups =
                 if (unlocks.isEmpty()) {
@@ -170,6 +179,8 @@ class InsightsComputer
                 answers = routine.answers,
                 periods = routine.periods,
                 recentGuesses = guesses.recent,
+                sleepDays = sleepDays,
+                sleepWeek = SleepDays.summarize(sleepDays, zone),
             )
         }
 

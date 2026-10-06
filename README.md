@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)  
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)  
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com/)
-[![Version](https://img.shields.io/badge/Version-1.3.0-blue.svg)](https://github.com/Reyatsu99/HabitMiner-Refactored/releases)
+[![Version](https://img.shields.io/badge/Version-1.3.1-blue.svg)](https://github.com/Reyatsu99/HabitMiner-Refactored/releases)
 
 ---
 
@@ -116,6 +116,7 @@ Tuned against two weeks of real data from one of the authors (including an exam 
 - **Routine changes**: several days in a row well above or below usual (e.g. exam week) show as one change with the apps that moved. HabitMiner asks once what's going on (exams, travel, unwell, holiday…); labelled days are kept out of "usual" everywhere, including the usual-by-now curve.
 - **Evening summary**: around 21:00 on days with something notable, with Expected / Unusual buttons that save labels.
 - **Sleep with brief wake-ups**: switching off an alarm or checking the time no longer ends the night. Neighbouring screen-off stretches are joined unless the step counter shows you getting up, so the night is reported as e.g. "03:31 → 08:10, woke briefly 2×".
+- **Sleep per day** (1.3.1): each day's total is the night that ended that morning plus the naps you confirmed that day. Today shows the total with its breakdown (night, time in bed, brief wake-ups, naps); Blueprint → "Sleep this week" shows one bar per day split into night and naps, with the weekly average, naps and how regular your bedtime is. Exported as `sleep_days_*.csv`.
 - **Naps**: daytime stretches of 45+ minutes with the phone untouched and no steps (stronger if the room is dark when you pick the phone up) trigger "Were you asleep?". Confirmed naps appear under Sleep and on the History timeline.
 - **Next-app model**: learns online with recency weighting from what usually follows the current app, the last two apps, the hour of day and apps used in the last hour, and skips share sheets, pickers and call screens. On the authors' last three days: right first time 34% (was 21%), in the top 3 61% (was 41%), against 22% for always guessing the most-used app. Insights → Routines shows what it guessed before each recent switch and what you actually opened.
 - **Export** now includes unlocks and notifications (`device_events_*.csv`).

@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import com.habitminer.ui.components.LegendDot
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -45,10 +47,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.habitminer.analytics.DailySleep
 import com.habitminer.analytics.DayTypes
 import com.habitminer.analytics.Format
 import com.habitminer.analytics.PredictabilityResult
-import com.habitminer.analytics.SleepEstimate
+import com.habitminer.analytics.SleepWeek
 import com.habitminer.analytics.WeekComparison
 import com.habitminer.engine.HabitUiState
 import com.habitminer.engine.HabitActions
@@ -287,7 +290,10 @@ private fun LazyListScope.blueprintTab(state: HabitUiState) {
     }
     item { DayTypesCard(insights.dayTypes) }
     insights.week?.let { item { WeekCompareCard(it) } }
-    if (insights.sleepNights.isNotEmpty()) item { SleepWeekCard(insights.sleepNights) }
+    if (insights.sleepDays.isNotEmpty()) {
+        val openNaps = insights.naps.count { it.confidence.name != "LOW" && it.key !in insights.answers }
+        item { SleepWeekCard(insights.sleepDays, insights.sleepWeek, openNaps) }
+    }
     if (insights.contextInsights.isNotEmpty()) {
         items(insights.contextInsights, key = { it.headline }) { ContextInsightCard(it) }
     }
@@ -422,23 +428,81 @@ private fun WeekCompareCard(week: WeekComparison) {
 }
 
 @Composable
-private fun SleepWeekCard(nights: List<SleepEstimate>) {
+private fun SleepWeekCard(
+    days: List<DailySleep>,
+    week: SleepWeek?,
+    openNaps: Int,
+) {
     val zone = java.time.ZoneId.systemDefault()
-    var expanded by remember { mutableStateOf(false) }
+    val nightColor = Color(0xFF7986CB)
+    val napColor = Color(0xFFB39DDB)
+    val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
+    val scale = maxOf(10 * 3_600_000L, days.maxOfOrNull { it.totalMs } ?: 0L).toFloat()
     SurfaceCard {
-        CardHeader("Sleep (estimated)", Icons.Default.Bedtime, tint = Color(0xFF7986CB))
-        Spacer(modifier = Modifier.height(8.dp))
-        val shown = if (expanded) nights.reversed() else nights.reversed().take(3)
-        shown.forEach { n ->
-            val day = n.wakeDate.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-            InfoRow(
-                "$day  ${Format.clock(n.sleepStart, zone)} → ${Format.clock(n.wakeTime, zone)}",
-                Format.duration(n.durationMs) + if (n.confidence.name == "LOW") " (unsure)" else "",
+        CardHeader(
+            "Sleep this week",
+            Icons.Default.Bedtime,
+            tint = nightColor,
+            trailing = week?.let { "avg ${Format.duration(it.avgTotalMs)} a day" },
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        days.reversed().forEach { d ->
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${d.date.dayOfMonth}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.width(56.dp),
+                )
+                Row(
+                    modifier = Modifier.weight(1f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(track),
+                ) {
+                    val nightFrac = d.nightMs / scale
+                    val napFrac = d.napMs / scale
+                    if (nightFrac > 0f) Box(modifier = Modifier.weight(nightFrac).fillMaxHeight().background(nightColor))
+                    if (napFrac > 0f) Box(modifier = Modifier.weight(napFrac).fillMaxHeight().background(napColor))
+                    val rest = 1f - nightFrac - napFrac
+                    if (rest > 0.001f) Spacer(modifier = Modifier.weight(rest))
+                }
+                Text(
+                    Format.duration(d.totalMs),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.width(64.dp).padding(start = 8.dp),
+                )
+            }
+            val parts =
+                listOfNotNull(
+                    d.night?.let { "${Format.clock(it.sleepStart, zone)} → ${Format.clock(it.wakeTime, zone)}" + if (it.confidence.name == "LOW") " (unsure)" else "" },
+                    d.night?.briefWakes?.takeIf { it.isNotEmpty() }?.let { "woke ${it.size}×" },
+                    d.naps.takeIf { it.isNotEmpty() }?.let { "nap ${Format.duration(d.napMs)}" },
+                )
+            Text(
+                parts.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(start = 56.dp),
             )
         }
-        if (nights.size > 3) {
-            TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all ${nights.size} nights") }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            LegendDot(nightColor, "Night")
+            LegendDot(napColor, "Naps")
         }
-        Hint("From the longest overnight stretch with your screen off. Charging and darkness raise confidence.")
+        week?.let { w ->
+            Spacer(modifier = Modifier.height(8.dp))
+            InfoRow("Average per day", Format.duration(w.avgTotalMs))
+            InfoRow("Average night", Format.duration(w.avgNightMs))
+            InfoRow("Naps", if (w.napCount == 0) "none confirmed" else "${w.napCount} · ${Format.duration(w.napTotalMs)} in total")
+            w.avgBedtimeMinutes?.let { bed ->
+                InfoRow("Usual bedtime", "around ${Format.clockFromMinutes(bed)}" + (w.bedtimeSpreadMinutes?.let { " · varies ±${Format.duration(it * 60_000L)}" } ?: ""))
+            }
+        }
+        if (openNaps > 0) Hint("$openNaps possible nap${if (openNaps == 1) "" else "s"} not confirmed yet, so not counted. Answer on Today.")
+        Hint(
+            "Each day = the night that ended that morning + naps you confirmed. Short wake-ups (an alarm, a quick check) " +
+                "don't end the night unless the step counter sees you get up.",
+        )
     }
 }
