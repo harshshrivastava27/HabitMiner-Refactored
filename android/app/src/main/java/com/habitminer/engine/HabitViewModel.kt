@@ -117,6 +117,15 @@ data class HabitUiState(
     val stepsToday: Long = -1L,
     val stepSensorAvailable: Boolean = true,
     val stepPermission: Boolean = true,
+    // ---- Extended ----
+    /** Longest stretch today, while awake, without touching the phone. */
+    val phoneFree: com.habitminer.analytics.PhoneFreeStretch? = null,
+    /** POST_NOTIFICATIONS (Android 13+), asked for in context after the first full day. */
+    val canPostNotifications: Boolean = true,
+    /** Screen time per day for the last 14 days, oldest first. */
+    val dailyTotals: ImmutableList<Pair<java.time.LocalDate, Long>> = persistentListOf(),
+    /** Every app used in the last five weeks, most used this week first. */
+    val appSummaries: ImmutableList<com.habitminer.analytics.AppSummary> = persistentListOf(),
 )
 
 @OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -211,14 +220,12 @@ class HabitViewModel
                 application.getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
                     .getBoolean(PrefsKeys.COLLECTION_ENABLED, true)
 
-            val hasRuntime =
-                buildList {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(android.Manifest.permission.ACTIVITY_RECOGNITION)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(android.Manifest.permission.POST_NOTIFICATIONS)
-                }.all {
-                    androidx.core.content.ContextCompat.checkSelfPermission(application, it) ==
-                        android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
+            fun granted(permission: String) =
+                androidx.core.content.ContextCompat.checkSelfPermission(application, permission) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            // Steps are needed from the start; notifications are asked for later, in context.
+            val hasRuntime = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || granted(android.Manifest.permission.ACTIVITY_RECOGNITION)
+            val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || granted(android.Manifest.permission.POST_NOTIFICATIONS)
 
             // Permission may have just been granted on the permission screen.
             stepCounterMonitor.start()
@@ -227,6 +234,7 @@ class HabitViewModel
                     hasUsagePermission = hasUsage,
                     hasNotificationPermission = hasNotif,
                     hasRuntimePermissions = hasRuntime,
+                    canPostNotifications = canNotify,
                     retentionDays = retentionDays,
                     features = readFeatureSettings(),
                     stepSensorAvailable = stepCounterMonitor.hasSensor(),
@@ -591,11 +599,16 @@ class HabitViewModel
                 launch {
                     window.collectLatest { usage ->
                         if (usage.isEmpty()) return@collectLatest
+                        val today = java.time.LocalDate.now(zone)
+                        var daily: List<Pair<java.time.LocalDate, Long>> = emptyList()
+                        var apps: List<com.habitminer.analytics.AppSummary> = emptyList()
                         val (after, guesses) =
                             withContext(Dispatchers.Default) {
                                 val sessions =
                                     usage.filterNot { appIdentityResolver.isLauncher(it.packageName) }
                                         .map(AnalyticsMappers::session)
+                                daily = com.habitminer.analytics.UsageSummaries.daily(sessions, 14, today, zone)
+                                apps = com.habitminer.analytics.UsageSummaries.apps(sessions, today, zone)
                                 com.habitminer.analytics.NextAppModel.currentApp(sessions) to
                                     com.habitminer.analytics.NextAppModel.predict(sessions, System.currentTimeMillis(), zone)
                             }
@@ -607,6 +620,8 @@ class HabitViewModel
                             it.copy(
                                 predictions = guesses.toImmutableList(),
                                 predictionsAfter = after,
+                                dailyTotals = daily.toImmutableList(),
+                                appSummaries = apps.toImmutableList(),
                                 daysOfData = days,
                                 lastUsageUpdate = usage.maxOfOrNull { u -> u.endTime },
                             )
@@ -672,8 +687,21 @@ class HabitViewModel
                                         excludedDayStarts = excluded,
                                     )
                                 }
-                            val unlocks = withContext(Dispatchers.IO) { contextRepository.countUnlocksSince(getStartOfDay()) }
-                            _uiState.update { it.copy(typicalUsage = typical, todayUnlocks = unlocks) }
+                            val dayStart = getStartOfDay()
+                            val unlockTimes = withContext(Dispatchers.IO) { contextRepository.unlockTimesSince(dayStart) }
+                            val phoneFree =
+                                withContext(Dispatchers.Default) {
+                                    val today = java.time.LocalDate.now(zone)
+                                    val bundle = analysisRepository.bundle.value
+                                    val todaySessions =
+                                        usage.filter { it.startTime >= dayStart && !appIdentityResolver.isLauncher(it.packageName) }
+                                            .map(AnalyticsMappers::session)
+                                    val firstUse = (todaySessions.map { it.start } + unlockTimes).minOrNull()
+                                    val awakeFrom = bundle?.lastNight?.takeIf { it.wakeDate == today }?.wakeTime ?: firstUse
+                                    val naps = bundle?.confirmedNaps.orEmpty().filter { (s, _) -> s >= dayStart }
+                                    awakeFrom?.let { com.habitminer.analytics.PhoneFree.longestToday(todaySessions, unlockTimes, it, now, naps) }
+                                }
+                            _uiState.update { it.copy(typicalUsage = typical, todayUnlocks = unlockTimes.size, phoneFree = phoneFree) }
                         }
                 }
 

@@ -119,6 +119,7 @@ object SampleData {
     class Data(
         val state: HabitUiState,
         val now: Long,
+        val sessions: List<com.habitminer.analytics.UsageSession> = emptyList(),
     )
 
     fun build(now: Long): Data {
@@ -302,9 +303,9 @@ object SampleData {
                 discoveredHabits = habits.toImmutableList(),
                 predictions =
                     listOf(
-                        AppGuess("Snapchat", 0.25f),
-                        AppGuess("WhatsApp", 0.21f),
-                        AppGuess("Google", 0.10f),
+                        AppGuess("Snapchat", 0.25f, "com.snapchat.android"),
+                        AppGuess("WhatsApp", 0.21f, "com.whatsapp"),
+                        AppGuess("Google", 0.10f, "com.google.android.googlequicksearchbox"),
                     ).toImmutableList(),
                 predictionsAfter = "Telegram",
                 hasEnoughData = true,
@@ -331,7 +332,16 @@ object SampleData {
                 sensingModeName = "NORMAL",
                 sensingMsToday = 93_000L,
                 stepsToday = 4_321L,
+                phoneFree =
+                    com.habitminer.analytics.PhoneFree.longestToday(
+                        todaySessions,
+                        todayUnlocks,
+                        nights.lastOrNull()?.takeIf { it.wakeDate == today }?.wakeTime ?: todayStart,
+                        now,
+                    ),
+                dailyTotals = com.habitminer.analytics.UsageSummaries.daily(sessions, 14, today, zone).toImmutableList(),
+                appSummaries = com.habitminer.analytics.UsageSummaries.apps(sessions, today, zone).toImmutableList(),
             )
-        return Data(state, now)
+        return Data(state, now, sessions)
     }
 }

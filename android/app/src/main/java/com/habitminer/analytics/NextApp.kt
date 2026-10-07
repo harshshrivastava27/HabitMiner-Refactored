@@ -8,6 +8,8 @@ import kotlin.math.ln
 data class AppGuess(
     val appName: String,
     val share: Float,
+    /** For the app's icon and detail page; null when not known. */
+    val packageName: String? = null,
 )
 
 /** What the model guessed before a past app switch, and what actually happened. */
@@ -46,6 +48,7 @@ object NextAppModel {
     val TRANSIENT_PACKAGES =
         setOf(
             "com.habitminer",
+            "com.habitminer.extended",
             "com.android.intentresolver",
             "com.google.android.photopicker",
             "com.google.android.captiveportallogin",
@@ -208,7 +211,8 @@ object NextAppModel {
         val before = previous?.takeIf { current.start - it.end <= MAX_GAP_MS }?.appName
         val ranked = learner.rank(before, current.appName, TimeUtil.hourOf(now, zone), recentUse(usable, now))
         val total = ranked.sumOf { it.second }.takeIf { it > 0 } ?: return emptyList()
-        return ranked.take(count).map { AppGuess(it.first, (it.second / total).toFloat()) }
+        val packageOf = usable.associate { it.appName to it.packageName }
+        return ranked.take(count).map { AppGuess(it.first, (it.second / total).toFloat(), packageOf[it.first]) }
     }
 
     /** The app the predictions are for: the last app used that the model counts. */

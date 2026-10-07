@@ -685,3 +685,92 @@ class SleepDaysTest {
         assertEquals(listOf(10_000L, 100_000L, 200_000L), UnlockMerge.merge(system, receiver))
     }
 }
+
+class DayRibbonTest {
+    @Test
+    fun ribbonSplitsSessionsAcrossHoursAndStopsAtNow() {
+        val day = d(7)
+        val sessions = listOf(s("A", day, 9, 50, 20), s("B", day, 14, 0, 30))
+        val now = at(day, 14, 20)
+        val r = DayRibbonBuilder.build(sessions, null, null, emptyList(), day, now, ZONE)
+        assertEquals(10, r.todayMinutes[9])
+        assertEquals(10, r.todayMinutes[10])
+        // Only the 20 minutes before now count, and nothing after now.
+        assertEquals(20, r.todayMinutes[14])
+        assertEquals(0, r.todayMinutes[15])
+        assertEquals(14 * 60 + 20, r.nowMinute)
+        assertNull(r.usualMinutes)
+    }
+
+    @Test
+    fun ribbonShowsLastNightFromMidnightToWaking() {
+        val day = d(7)
+        val night = SleepEstimate(day, at(day.minusDays(1), 23, 30), at(day, 7, 15), Confidence.HIGH, 0, null, null, null)
+        val r = DayRibbonBuilder.build(emptyList(), null, night, listOf(at(day, 14, 0) to at(day, 15, 0)), day, at(day, 18, 0), ZONE)
+        assertEquals(listOf(0 to 7 * 60 + 15, 14 * 60 to 15 * 60), r.sleep)
+    }
+}
+
+class PhoneFreeTest {
+    @Test
+    fun longestGapBetweenUsesSinceWaking() {
+        val day = d(7)
+        val sessions = listOf(s("A", day, 8, 0, 10), s("B", day, 9, 0, 10), s("C", day, 12, 30, 5))
+        val unlocks = listOf(at(day, 10, 0))
+        val gap = PhoneFree.longestToday(sessions, unlocks, at(day, 7, 30), at(day, 13, 0))!!
+        // 10:01 to 12:30 is the longest stretch without the phone.
+        assertEquals(at(day, 10, 1), gap.start)
+        assertEquals(at(day, 12, 30), gap.end)
+    }
+
+    @Test
+    fun confirmedNapIsNotPhoneFreeTime() {
+        val day = d(7)
+        val sessions = listOf(s("A", day, 8, 0, 10), s("B", day, 17, 0, 10))
+        val nap = at(day, 9, 0) to at(day, 16, 0)
+        val gap = PhoneFree.longestToday(sessions, emptyList(), at(day, 7, 30), at(day, 17, 30), listOf(nap))!!
+        assertEquals(at(day, 16, 0), gap.start)
+        assertEquals(at(day, 17, 0), gap.end)
+    }
+}
+
+class UsageSummariesTest {
+    @Test
+    fun dailyTotalsSplitSessionsAtMidnight() {
+        val day = d(7)
+        val sessions = listOf(s("A", day.minusDays(1), 23, 50, 20), s("A", day, 10, 0, 30))
+        val daily = UsageSummaries.daily(sessions, 2, day, ZONE)
+        assertEquals(day.minusDays(1), daily[0].first)
+        assertEquals(10 * MIN, daily[0].second)
+        assertEquals(40 * MIN, daily[1].second)
+    }
+
+    @Test
+    fun appSummariesRankByThisWeek() {
+        val day = d(14)
+        val sessions =
+            listOf(
+                s("Old", day.minusDays(10), 10, 0, 300),
+                s("New", day, 9, 0, 20),
+                s("New", day.minusDays(2), 9, 0, 20),
+            )
+        val apps = UsageSummaries.apps(sessions, day, ZONE)
+        assertEquals("New", apps[0].appName)
+        assertEquals(2, apps[0].weekOpens)
+        assertEquals(1, apps[0].todayOpens)
+        assertEquals(0L, apps[1].weekMs)
+        assertEquals(300 * MIN, apps[1].windowMs)
+    }
+
+    @Test
+    fun appDetailCountsOpensRightAfterItsNotifications() {
+        val day = d(14)
+        val sessions = listOf(s("Chat", day, 9, 0, 5), s("Chat", day, 12, 0, 15), s("Chat", day, 20, 0, 10))
+        val notes = listOf(at(day, 8, 59, ) + 30_000L, at(day, 15, 0))
+        val detail = UsageSummaries.detail(sessions, notes, day, ZONE)!!
+        assertEquals(1, detail.opensAfterNotification)
+        assertEquals(3, detail.opens)
+        assertEquals(10 * MIN, detail.medianSessionMs)
+        assertEquals(12, detail.busiestHour)
+    }
+}

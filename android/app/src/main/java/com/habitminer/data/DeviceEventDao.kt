@@ -38,6 +38,13 @@ interface DeviceEventDao {
         sinceMs: Long,
     ): List<DeviceEventEntity>
 
+    @Query("SELECT timestamp FROM device_events WHERE eventType = :eventType AND packageName = :packageName AND timestamp >= :sinceMs ORDER BY timestamp ASC")
+    suspend fun getTimesForPackageSince(
+        eventType: String,
+        packageName: String,
+        sinceMs: Long,
+    ): List<Long>
+
     @Query("SELECT COUNT(*) || ':' || COALESCE(MAX(timestamp), 0) FROM device_events WHERE timestamp >= :sinceMs")
     suspend fun getRevisionSince(sinceMs: Long): String
 

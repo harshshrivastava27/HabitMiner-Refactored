@@ -91,6 +91,11 @@ class ContextRepository
 
         suspend fun countUnlocksSince(sinceMs: Long): Int = unlockTimesSince(sinceMs).size
 
+        suspend fun notificationTimesForPackageSince(
+            packageName: String,
+            sinceMs: Long,
+        ): List<Long> = deviceEventDao.getTimesForPackageSince(com.habitminer.collection.DeviceEvents.NOTIFICATION, packageName, sinceMs)
+
         suspend fun getDeviceEventsOfTypesSince(
             eventTypes: List<String>,
             sinceMs: Long,

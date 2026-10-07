@@ -2,31 +2,28 @@
 
 package com.habitminer.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,254 +34,209 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.habitminer.engine.HabitUiState
 import com.habitminer.engine.HabitViewModel
+import com.habitminer.ui.design.ListRow
+import com.habitminer.ui.design.Note
+import com.habitminer.ui.design.RowGroup
+import com.habitminer.ui.design.ScreenPadding
+import com.habitminer.ui.design.SectionHeader
+import com.habitminer.ui.theme.Appearance
+import com.habitminer.ui.theme.ThemeMode
 import kotlinx.coroutines.delay
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
-import androidx.compose.material3.OutlinedTextField
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 
-@kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     state: HabitUiState,
     viewModel: HabitViewModel,
+    appearance: Appearance,
+    onThemeMode: (ThemeMode) -> Unit,
+    onWallpaperColors: (Boolean) -> Unit,
+    onBack: () -> Unit,
     onOpenToday: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    var confirmClearData by remember { mutableStateOf(false) }
-    val scrollState = rememberScrollState()
+    var confirmClear by remember { mutableStateOf(false) }
 
-    // Collect the one-shot share event from the ViewModel. This uses a SharedFlow
-    // with replay=0, so it fires exactly once and is NOT replayed after rotation.
+    // The export's share sheet: a one-shot event, not replayed after rotation.
     LaunchedEffect(viewModel) {
         viewModel.shareExportEvent.collect { path ->
-            val file = java.io.File(path)
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = "application/zip"
-                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Exported Data"))
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", java.io.File(path))
+            val share =
+                android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            context.startActivity(android.content.Intent.createChooser(share, "Share your HabitMiner data"))
         }
     }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.importData(uri) }
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp, vertical = 24.dp),
-    ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Check-ins, nudges and digest
-        SettingsSection(title = "Check-ins & reminders") {
-            SettingsSwitch(
-                title = "Quick check-ins",
-                description = "Up to 3 one-tap questions a day, 09:00–22:00: \"what are you doing?\", \"were you asleep?\" after a likely nap, " +
-                    "and \"what's going on?\" when your routine changes for a few days. Answers become labels for testing the app's guesses.",
-                checked = state.features.checkIns,
-                onChange = viewModel::setCheckInsEnabled,
-            )
-            SettingsSwitch(
-                title = "Gentle nudges",
-                description = "A heads-up after 25 minutes of late-night scrolling or gaming, or an hour straight in the day. Shares the 3-a-day limit.",
-                checked = state.features.nudges,
-                onChange = viewModel::setNudgesEnabled,
-            )
-            SettingsSwitch(
-                title = "Unusual-day summary",
-                description = "Around 21:00 on days that were clearly different from usual, with Expected / Unusual buttons. Shares the 3-a-day limit.",
-                checked = state.features.deviationAlerts,
-                onChange = viewModel::setDeviationAlertsEnabled,
-            )
-            SettingsSwitch(
-                title = "Weekly summary",
-                description = "A short recap every Sunday evening.",
-                checked = state.features.digest,
-                onChange = viewModel::setDigestEnabled,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            TextButton(onClick = {
-                viewModel.openCheckIn(null)
-                onOpenToday()
-            }) { Text("Answer a check-in now") }
-            Text(
-                text = "${state.checkInCount} check-ins answered · ${state.labelCount} labels in total",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-            )
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
+        item(key = "bar") {
+            Row(modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
+                Spacer(Modifier.width(4.dp))
+                Text("Settings", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+            }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        item(key = "appearance") {
+            SectionHeader("Appearance")
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding)) {
+                ThemeMode.entries.forEachIndexed { i, mode ->
+                    SegmentedButton(
+                        selected = appearance.themeMode == mode,
+                        onClick = { onThemeMode(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size),
+                    ) { Text(mode.label) }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            RowGroup {
+                row {
+                    ToggleRow(
+                        "Wallpaper colours",
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            "Tint buttons and highlights with your wallpaper's colours. Charts keep their own colours."
+                        } else {
+                            "Needs Android 12 or later."
+                        },
+                        appearance.wallpaperColors,
+                        enabled = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S,
+                        onChange = onWallpaperColors,
+                    )
+                }
+            }
+        }
 
-        PlacesSection(state, viewModel)
+        item(key = "notifications") {
+            SectionHeader("Questions and reminders", info = "These share one limit of three a day, so turning more on doesn't mean more interruptions.")
+            RowGroup {
+                row {
+                    ToggleRow(
+                        "Quick questions",
+                        "\"What are you doing?\", \"Were you asleep?\" after a likely nap, and \"What's going on?\" when your routine changes. Between 09:00 and 22:00.",
+                        state.features.checkIns,
+                        onChange = viewModel::setCheckInsEnabled,
+                    )
+                }
+                row {
+                    ToggleRow(
+                        "Gentle nudges",
+                        "After 25 minutes of late-night scrolling or gaming, or an hour straight during the day.",
+                        state.features.nudges,
+                        onChange = viewModel::setNudgesEnabled,
+                    )
+                }
+                row {
+                    ToggleRow(
+                        "Unusual-day summary",
+                        "Around 21:00 on days that were clearly different from usual.",
+                        state.features.deviationAlerts,
+                        onChange = viewModel::setDeviationAlertsEnabled,
+                    )
+                }
+                row { ToggleRow("Weekly recap", "A short summary on Sunday evening.", state.features.digest, onChange = viewModel::setDigestEnabled) }
+                row {
+                    ListRow(
+                        "Answer a question now",
+                        supporting = "${state.checkInCount} answered, ${state.labelCount} labels in total",
+                        onClick = {
+                            viewModel.openCheckIn(null)
+                            onOpenToday()
+                        },
+                    )
+                }
+            }
+        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        item(key = "places") { PlacesSection(state, viewModel) }
 
-        // Privacy & Data Section
-        SettingsSection(title = "Privacy & Local Data") {
-            SettingsItem(
-                icon = Icons.Default.Security,
-                title = "On-Device Processing",
-                description =
-                    "Your usage, sensor, unlock, and notification summaries stay on this device. Data is never sent to a cloud server.",
+        item(key = "data") {
+            SectionHeader(
+                "Your data",
+                info =
+                    "Everything HabitMiner records stays on this phone. Nothing is sent to a server.\n\n" +
+                        "Export makes a ZIP of CSV files you can open in a spreadsheet or analyse in Python. Import merges an export back in " +
+                        "without duplicates, including exports from the original HabitMiner app.",
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Data Retention",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-            ) {
-                val options = listOf(30, 90, 180)
-                options.forEachIndexed { index, days ->
+            Note("Keep data for")
+            val options = listOf(30, 90, 180)
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding, vertical = 6.dp)) {
+                options.forEachIndexed { i, days ->
                     SegmentedButton(
                         selected = days == state.retentionDays,
                         onClick = { viewModel.setRetentionDays(days) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
-                    ) {
-                        Text("${days}d")
-                    }
+                        shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                    ) { Text("$days days") }
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            SettingsAction(
-                icon = Icons.Default.DeleteOutline,
-                title = "Clear collected data",
-                color = MaterialTheme.colorScheme.error,
-                onClick = { confirmClearData = true },
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Export Section
-        SettingsSection(title = "Data Portability") {
-            SettingsItem(
-                icon = Icons.Default.Download,
-                title = "Export Data (ZIP)",
-                description = "Packages all your usage, context, habits, and deviation data into a single .zip file for sharing and external analysis.",
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = { viewModel.exportDataToCsv() },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Text("Export Data Now")
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-            SettingsItem(
-                icon = Icons.Default.Upload,
-                title = "Import Data (ZIP)",
-                description =
-                    "Restore a ZIP made with Export, e.g. after reinstalling or on a new phone. " +
-                        "Your history is merged in without duplicates, and routines are rebuilt from it.",
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            val importLauncher =
-                rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                    if (uri != null) viewModel.importData(uri)
+            Spacer(Modifier.height(8.dp))
+            RowGroup {
+                row { ListRow("Export data", supporting = "A ZIP of CSV files to share or analyse", onClick = { viewModel.exportDataToCsv() }) }
+                row {
+                    ListRow(
+                        "Import an export",
+                        supporting = "From this app or the original HabitMiner",
+                        onClick = { importLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                    )
                 }
-            OutlinedButton(
-                onClick = {
-                    importLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
-                },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Text("Import a previous export")
+                row { ListRow("Delete all data", supporting = "Usage, readings, routines and labels", onClick = { confirmClear = true }) }
             }
-
-            if (state.exportMessage != null) {
-                LaunchedEffect(state.exportMessage) {
-                    // Import results are longer, so leave them up a little longer.
-                    delay(if (state.exportMessage.startsWith("Imported")) 12_000 else 4_000)
+            state.exportMessage?.let { msg ->
+                LaunchedEffect(msg) {
+                    delay(if (msg.startsWith("Imported")) 12_000 else 5_000)
                     viewModel.clearExportMessage()
                 }
-                Text(
-                    text = state.exportMessage,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+                Text(msg, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 10.dp))
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        item(key = "about") {
+            SectionHeader("About")
+            val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "" }
+            RowGroup {
+                row { ListRow("HabitMiner Extended", supporting = "Version $version") }
+                row { ListRow("Typeface", supporting = "Mona Sans by GitHub, SIL Open Font License 1.1") }
+            }
+        }
     }
 
-    if (confirmClearData) {
+    if (confirmClear) {
         AlertDialog(
-            onDismissRequest = { confirmClearData = false },
-            title = { Text("Clear local data?") },
-            text = {
-                Text("This will delete all collected app usage, context snapshots, baselines, and models. This action cannot be undone.")
-            },
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Delete all data?") },
+            text = { Text("This deletes your app usage, readings, routines and labels on this phone. Export first if you want to keep a copy. It can't be undone.") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.clearDatabase()
-                        confirmClearData = false
-                    },
-                ) {
-                    Text("Clear Data", color = MaterialTheme.colorScheme.error)
-                }
+                TextButton(onClick = {
+                    viewModel.clearDatabase()
+                    confirmClear = false
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmClearData = false }) {
-                    Text("Cancel")
-                }
-            },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
         )
     }
 }
 
 @Composable
-fun SettingsSwitch(
+fun ToggleRow(
     title: String,
     description: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onChange: (Boolean) -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-        }
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
+    ListRow(
+        title,
+        supporting = description,
+        maxSupportingLines = 4,
+        trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
+        onClick = if (enabled) ({ onChange(!checked) }) else null,
+    )
 }
 
 /** Opt-in Wi-Fi places: permission request, explanation and renaming. */
@@ -295,87 +247,58 @@ fun PlacesSection(
 ) {
     var renaming by remember { mutableStateOf<String?>(null) }
     var newName by remember { mutableStateOf("") }
-    var permissionDenied by remember { mutableStateOf(false) }
+    var denied by remember { mutableStateOf(false) }
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             val granted = result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
-            permissionDenied = !granted
+            denied = !granted
             viewModel.setPlacesEnabled(granted)
         }
-
-    SettingsSection(title = "Places (optional)") {
-        SettingsSwitch(
-            title = "Detect places from Wi-Fi",
-            description =
-                "Groups your phone use by place (e.g. home, campus) using the Wi-Fi network you're connected to. " +
-                    "Only a scrambled ID is stored, never the network name or your location. Android asks for location access to allow this.",
-            checked = state.features.places,
-            onChange = { enable ->
-                if (enable) {
-                    launcher.launch(
-                        arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION),
-                    )
-                } else {
-                    viewModel.setPlacesEnabled(false)
-                }
-            },
-        )
-        if (permissionDenied) {
-            Text(
-                "Location access wasn't granted, so places stay off. You can allow it in Android settings.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+    SectionHeader(
+        "Places",
+        info =
+            "Groups your phone use by place (home, campus) using the Wi-Fi network you're connected to. Only a scrambled ID is stored, " +
+                "never the network's name or your location. Android asks for location access to share the network ID, and location " +
+                "services need to stay on.",
+    )
+    val names = state.insights?.placeNames.orEmpty()
+    RowGroup {
+        row {
+            ToggleRow(
+                "Detect places from Wi-Fi",
+                if (denied) "Location access wasn't granted, so places stay off." else "Off by default.",
+                state.features.places,
+                onChange = { enable ->
+                    if (enable) {
+                        launcher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+                    } else {
+                        viewModel.setPlacesEnabled(false)
+                    }
+                },
             )
         }
         if (state.features.places) {
-            Text(
-                "Keep location services switched on so Android can share the Wi-Fi ID.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-            )
-            val names = state.insights?.placeNames.orEmpty()
-            if (state.places.isEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "No places yet. They appear after a few readings on Wi-Fi.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                )
-            }
             state.places.forEach { place ->
-                val display = place.label ?: names[place.placeHash] ?: "Unnamed place"
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(display, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-                        Text(
-                            "Last seen ${Labels.age(place.lastSeen)}" + if (place.label == null) " · suggested name" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        )
-                    }
-                    TextButton(onClick = {
-                        renaming = place.placeHash
-                        newName = place.label ?: ""
-                    }) { Text("Rename") }
+                row {
+                    ListRow(
+                        place.label ?: names[place.placeHash] ?: "Unnamed place",
+                        supporting = "Last seen ${Labels.age(place.lastSeen)}" + if (place.label == null) ", suggested name" else "",
+                        trailingText = "Rename",
+                        onClick = {
+                            renaming = place.placeHash
+                            newName = place.label ?: ""
+                        },
+                    )
                 }
             }
         }
     }
-
     renaming?.let { hash ->
         AlertDialog(
             onDismissRequest = { renaming = null },
             title = { Text("Name this place") },
             text = {
-                OutlinedTextField(
-                    value = newName,
-                    onValueChange = { newName = it.take(30) },
-                    singleLine = true,
-                    placeholder = { Text("e.g. Home, Library, Hostel") },
-                )
+                OutlinedTextField(value = newName, onValueChange = { newName = it.take(30) }, singleLine = true, placeholder = { Text("Home, Library, Hostel") })
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -383,98 +306,7 @@ fun PlacesSection(
                     renaming = null
                 }) { Text("Save") }
             },
-            dismissButton = {
-                TextButton(onClick = { renaming = null }) { Text("Cancel") }
-            },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
         )
-    }
-}
-
-@Composable
-fun SettingsSection(
-    title: String,
-    content: @Composable () -> Unit,
-) {
-    Column {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                content()
-            }
-        }
-    }
-}
-
-@Composable
-fun SettingsItem(
-    icon: ImageVector,
-    title: String,
-    description: String,
-) {
-    Row(verticalAlignment = Alignment.Top) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-        Column(modifier = Modifier.padding(start = 16.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-            )
-        }
-    }
-}
-
-@Composable
-fun SettingsAction(
-    icon: ImageVector,
-    title: String,
-    color: androidx.compose.ui.graphics.Color,
-    onClick: () -> Unit,
-) {
-    Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = color)
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = color,
-                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-            )
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-            )
-        }
     }
 }
