@@ -57,6 +57,15 @@ interface ContextDao {
     @Query("SELECT COUNT(*) || ':' || COALESCE(MAX(timestamp), 0) FROM context_snapshots WHERE timestamp < :beforeMs")
     suspend fun getModelRevision(beforeMs: Long): String
 
+    @Query("SELECT COUNT(*) || ':' || COALESCE(MAX(timestamp), 0) FROM context_snapshots WHERE timestamp >= :sinceMs")
+    suspend fun getRevisionSince(sinceMs: Long): String
+
+    @Query("SELECT * FROM context_snapshots ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestSnapshotOnce(): ContextSnapshotEntity?
+
+    @Query("SELECT * FROM context_snapshots WHERE lightLux >= 0 OR accelVariance >= 0 ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestSnapshotWithSensorsOnce(): ContextSnapshotEntity?
+
     @Query("DELETE FROM context_snapshots WHERE timestamp < :timestampMs")
     suspend fun deleteOlderThan(timestampMs: Long)
 

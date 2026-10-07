@@ -100,12 +100,12 @@ class MigrationTest {
     }
 
     @Test
-    fun `version 7 database migrates to 8 and keeps its readings`() =
+    fun `version 7 database migrates to 9 and keeps its readings`() =
         runBlocking {
             createVersion7()
             val db =
                 Room.databaseBuilder(context, AppDatabase::class.java, name)
-                    .addMigrations(AppDatabase.MIGRATION_7_8)
+                    .addMigrations(AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
                     .allowMainThreadQueries()
                     .build()
             try {

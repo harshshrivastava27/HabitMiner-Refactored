@@ -37,7 +37,6 @@ import com.habitminer.analytics.UsageSession
 import com.habitminer.analytics.WeekComparer
 import com.habitminer.analytics.WeekComparison
 import com.habitminer.collection.DeviceEventReceiver
-import com.habitminer.collection.UsageDataCollector
 import com.habitminer.data.AppUsageEntity
 import com.habitminer.data.ContextSnapshotEntity
 import com.habitminer.data.DiscoveredHabitEntity
@@ -95,7 +94,6 @@ class InsightsComputer
     @Inject
     constructor(
         private val appIdentityResolver: AppIdentityResolver,
-        private val usageDataCollector: UsageDataCollector,
         private val contextRepository: ContextRepository,
         private val routineAnalysis: RoutineAnalysis,
     ) {
@@ -122,9 +120,7 @@ class InsightsComputer
                 snapshots.asSequence().filter { it.timestamp >= horizon }.map(AnalyticsMappers::sample).toList()
 
             val eventHorizon = now - 8 * TimeUtil.DAY
-            val unlocks =
-                runCatching { usageDataCollector.getUnlockTimesSince(eventHorizon) }.getOrNull()
-                    ?: contextRepository.getDeviceEventsSince(DeviceEventReceiver.EVENT_UNLOCK, eventHorizon).map { it.timestamp }
+            val unlocks = contextRepository.unlockTimesSince(eventHorizon)
             val notifications =
                 contextRepository.getDeviceEventsSince(DeviceEventReceiver.EVENT_NOTIFICATION, todayStart)
                     .map { TimedEvent(it.timestamp, it.packageName) }

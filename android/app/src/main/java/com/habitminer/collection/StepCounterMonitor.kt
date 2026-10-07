@@ -56,6 +56,11 @@ class StepCounterMonitor
 
         @Volatile private var pendingFlush: CompletableDeferred<Unit>? = null
 
+        /** Today's counter state, kept in memory between saves. */
+        private var dayState: StepMath.DayState? = null
+        private var savedDay: LocalDate? = null
+        private var lastSavedAt = 0L
+
         fun hasSensor(): Boolean = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) != null
 
         fun hasPermission(): Boolean =
@@ -76,6 +81,16 @@ class StepCounterMonitor
         fun stop() {
             if (registered) sensorManager.unregisterListener(this)
             registered = false
+            // Keep the latest state across the restart.
+            dayState?.let { state ->
+                prefs.edit()
+                    .putString(KEY_DAY, state.day.toString())
+                    .putLong(KEY_BASE, state.base)
+                    .putLong(KEY_CARRIED, state.carried)
+                    .putLong(KEY_LAST, state.last)
+                    .apply()
+                savedDay = state.day
+            }
         }
 
         /**
@@ -113,13 +128,21 @@ class StepCounterMonitor
         ) {
             latestCounter = counter
             history = StepMath.trim(history + StepMath.StepPoint(atUptimeMs, counter), SystemClock.elapsedRealtime(), HISTORY_MS)
-            val state = StepMath.advance(restoreState(), LocalDate.now(), counter)
-            prefs.edit()
-                .putString(KEY_DAY, state.day.toString())
-                .putLong(KEY_BASE, state.base)
-                .putLong(KEY_CARRIED, state.carried)
-                .putLong(KEY_LAST, state.last)
-                .apply()
+            val state = StepMath.advance(dayState ?: restoreState(), LocalDate.now(), counter)
+            dayState = state
+            // Saved at most every few minutes (and on a new day): every batch while walking
+            // used to write the preferences file.
+            val nowMs = SystemClock.elapsedRealtime()
+            if (state.day != savedDay || nowMs - lastSavedAt > SAVE_INTERVAL_MS) {
+                prefs.edit()
+                    .putString(KEY_DAY, state.day.toString())
+                    .putLong(KEY_BASE, state.base)
+                    .putLong(KEY_CARRIED, state.carried)
+                    .putLong(KEY_LAST, state.last)
+                    .apply()
+                savedDay = state.day
+                lastSavedAt = nowMs
+            }
             _stepsToday.value = state.stepsToday
         }
 
@@ -141,7 +164,7 @@ class StepCounterMonitor
 
         /** Re-checks the date so "today" resets after midnight even without new steps. */
         fun refreshDay() {
-            val state = restoreState() ?: return
+            val state = dayState ?: restoreState() ?: return
             if (state.day != LocalDate.now()) _stepsToday.value = 0L
         }
 
@@ -169,6 +192,7 @@ class StepCounterMonitor
 
         companion object {
             private const val MAX_LATENCY_US = 60_000_000 // batch reports for up to 1 minute
+            private const val SAVE_INTERVAL_MS = 5 * 60 * 1000L
             private const val HISTORY_MS = 15 * 60 * 1000L
             private const val KEY_DAY = "day"
             private const val KEY_BASE = "base"

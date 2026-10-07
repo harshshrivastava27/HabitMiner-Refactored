@@ -51,4 +51,7 @@ object DatabaseModule {
 
     @Provides
     fun providePlaceDao(database: AppDatabase): PlaceDao = database.placeDao()
+
+    @Provides
+    fun provideBatchDao(database: AppDatabase): com.habitminer.data.BatchDao = database.batchDao()
 }

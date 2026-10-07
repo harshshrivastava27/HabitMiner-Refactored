@@ -133,17 +133,17 @@ class ExportManager
                     }
                 }
 
-                // 8. Unlocks and notifications: what this app recorded, plus the system's unlock
-                //    history (Android keeps about a week), for pickup and sleep analysis.
+                // 8. Device events: unlocks and notifications this app saw ("app"), and the
+                //    lock-screen, screen and power events copied from Android's log ("system").
                 val eventsFile = File(exportDir, "device_events_$timestamp.csv")
                 val events = contextRepository.getAllDeviceEvents()
-                val systemUnlocks =
-                    runCatching { usageDataCollector.getUnlockTimesSince(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000) }
-                        .getOrNull().orEmpty()
+                val appTypes = setOf(com.habitminer.collection.DeviceEvents.UNLOCK, com.habitminer.collection.DeviceEvents.NOTIFICATION)
                 FileWriter(eventsFile).use { writer ->
                     writer.append("eventType,packageName,timestamp,source\n")
-                    events.forEach { writer.append("${escapeCsv(it.eventType)},${escapeCsv(it.packageName ?: "")},${it.timestamp},app\n") }
-                    systemUnlocks.forEach { writer.append("UNLOCK,,$it,system\n") }
+                    events.forEach {
+                        val source = if (it.eventType in appTypes) "app" else "system"
+                        writer.append("${escapeCsv(it.eventType)},${escapeCsv(it.packageName ?: "")},${it.timestamp},$source\n")
+                    }
                 }
 
                 // 9. Sleep per day: the night that ended that morning + confirmed naps.
@@ -197,7 +197,7 @@ class ExportManager
                         .filterNot { appIdentityResolver.isLauncher(it.packageName) }
                         .map(com.habitminer.engine.AnalyticsMappers::session)
                 val samples = contextRepository.getSnapshotsSince(since).map(com.habitminer.engine.AnalyticsMappers::sample)
-                val unlocks = runCatching { usageDataCollector.getUnlockTimesSince(since) }.getOrNull().orEmpty()
+                val unlocks = contextRepository.unlockTimesSince(since)
                 val labels = feedbackRepository.getAllLabels().firstOrNull().orEmpty()
                 val today = java.time.LocalDate.now(zone)
                 val nights = com.habitminer.analytics.SleepDetector.detectRange(sessions, unlocks, samples, today, 90, now, zone)

@@ -14,11 +14,9 @@ import com.habitminer.analytics.TimeUtil
 import com.habitminer.analytics.TimedEvent
 import com.habitminer.analytics.WeekComparer
 import com.habitminer.collection.DeviceEventReceiver
-import com.habitminer.collection.UsageDataCollector
 import com.habitminer.data.PrefsKeys
 import com.habitminer.domain.AppIdentityResolver
 import com.habitminer.engine.AnalyticsMappers
-import com.habitminer.engine.RoutineAnalysis
 import com.habitminer.repository.ContextRepository
 import com.habitminer.repository.FeedbackRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -41,14 +39,11 @@ class ProactiveEngine
         @ApplicationContext private val context: Context,
         private val contextRepository: ContextRepository,
         private val feedbackRepository: FeedbackRepository,
-        private val usageDataCollector: UsageDataCollector,
+        private val usageIngestor: com.habitminer.collection.UsageIngestor,
         private val appIdentityResolver: AppIdentityResolver,
-        private val routineAnalysis: RoutineAnalysis,
+        private val analysisRepository: com.habitminer.engine.AnalysisRepository,
     ) {
         private val mutex = Mutex()
-
-        /** The full analysis reads ~5 weeks of data, so it is reused for up to 10 minutes. */
-        private var cached: Pair<Long, RoutineAnalysis.Result>? = null
 
         suspend fun tick() {
             if (!mutex.tryLock()) return
@@ -75,7 +70,7 @@ class ProactiveEngine
             val alertsOn = prefs.getBoolean(PrefsKeys.DEVIATION_ALERTS_ENABLED, true)
             val hour = TimeUtil.hourOf(now, zone)
             if ((questionsOn && screenOn) || (alertsOn && hour in 21 until 23)) {
-                val analysis = analysis(now, zone)
+                val analysis = analysis() ?: return
                 val answered = analysis.answers.keys
 
                 // 1. "Were you asleep?" right after a likely nap.
@@ -108,8 +103,9 @@ class ProactiveEngine
             }
 
             if (prefs.getBoolean(PrefsKeys.NUDGES_ENABLED, true) && screenOn) {
+                usageIngestor.ingest(minIntervalMs = 60_000L)
                 val recent =
-                    usageDataCollector.collectUsageSince(now - 3 * TimeUtil.HOUR, overlapMs = 30 * TimeUtil.MINUTE)
+                    contextRepository.getUsageSince(now - 3 * TimeUtil.HOUR)
                         .filterNot { appIdentityResolver.isLauncher(it.packageName) }
                         .map(AnalyticsMappers::session)
                 val latest =
@@ -136,32 +132,12 @@ class ProactiveEngine
             zone: ZoneId,
         ) = report.days.filter { it.date == TimeUtil.dateOf(now, zone) && it.notable }
 
-        private suspend fun analysis(
-            now: Long,
-            zone: ZoneId,
-        ): RoutineAnalysis.Result {
-            cached?.let { (at, result) -> if (now - at < 10 * TimeUtil.MINUTE) return result }
-            val since = now - 35 * TimeUtil.DAY
-            val sessions =
-                contextRepository.getAllUsage().first()
-                    .filter { it.startTime >= since }
-                    .filterNot { appIdentityResolver.isLauncher(it.packageName) }
-                    .map(AnalyticsMappers::session)
-            val samples = contextRepository.getSnapshotsSince(since).map(AnalyticsMappers::sample)
-            val unlocks =
-                runCatching { usageDataCollector.getUnlockTimesSince(now - 8 * TimeUtil.DAY) }.getOrNull()
-                    ?: contextRepository.getDeviceEventsSince(DeviceEventReceiver.EVENT_UNLOCK, now - 8 * TimeUtil.DAY).map { it.timestamp }
-            val result =
-                routineAnalysis.run(
-                    sessions, samples, unlocks, feedbackRepository.napAndPeriodLabels(), feedbackRepository.getPlaces().first(), now, zone,
-                )
-            cached = now to result
-            return result
-        }
+        /** The shared analysis; the background accepts it up to 10 minutes old. */
+        private suspend fun analysis(): com.habitminer.engine.InsightsBundle? = analysisRepository.get(maxAgeMs = 10 * TimeUtil.MINUTE)
 
         /** Answers change what should be asked next, so forget the cached analysis. */
         fun invalidate() {
-            cached = null
+            analysisRepository.invalidate()
         }
 
         private suspend fun buildDigest(
@@ -170,14 +146,11 @@ class ProactiveEngine
         ): DigestBuilder.Digest {
             val since = now - 16 * TimeUtil.DAY
             val sessions =
-                contextRepository.getAllUsage().first()
-                    .filter { it.startTime >= since }
+                contextRepository.getUsageSince(since)
                     .filterNot { appIdentityResolver.isLauncher(it.packageName) }
                     .map(AnalyticsMappers::session)
             val samples = contextRepository.getSnapshotsSince(now - 8 * TimeUtil.DAY).map(AnalyticsMappers::sample)
-            val unlocks =
-                usageDataCollector.getUnlockTimesSince(now - 8 * TimeUtil.DAY)
-                    ?: contextRepository.getDeviceEventsSince(DeviceEventReceiver.EVENT_UNLOCK, now - 8 * TimeUtil.DAY).map { it.timestamp }
+            val unlocks = contextRepository.unlockTimesSince(now - 8 * TimeUtil.DAY)
             val notifications =
                 contextRepository.getDeviceEventsSince(DeviceEventReceiver.EVENT_NOTIFICATION, now - 8 * TimeUtil.DAY)
                     .map { TimedEvent(it.timestamp, it.packageName) }

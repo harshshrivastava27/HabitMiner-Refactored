@@ -19,4 +19,9 @@ object PrefsKeys {
     const val LAST_DIGEST_AT = "last_digest_at"
     const val PLACE_SALT = "place_salt"
     const val SENSING_MODE = "sensing_mode"
+
+    // Extended
+    /** Monitoring paused from the notification or Settings; survives the service restarting. */
+    const val MONITORING_PAUSED = "monitoring_paused"
+    const val LAST_PRUNE_DAY = "last_prune_day"
 }

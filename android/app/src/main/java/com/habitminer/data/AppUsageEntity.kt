@@ -9,6 +9,8 @@ import androidx.room.PrimaryKey
         androidx.room.Index(value = ["startTime", "endTime"]),
         androidx.room.Index(value = ["dayType", "timeSlot"]),
         androidx.room.Index(value = ["packageName"]),
+        // MAX(endTime) runs on every collection; without this it scans the whole table.
+        androidx.room.Index(value = ["endTime"]),
     ],
 )
 data class AppUsageEntity(

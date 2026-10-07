@@ -123,10 +123,18 @@ class FeedbackRepository
 
         fun getPlaces(): Flow<List<PlaceEntity>> = placeDao.getAll()
 
+        /** When each place was last written, so a place is touched at most hourly. */
+        private val placeTouchedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
         suspend fun recordPlaceSeen(
             placeHash: String,
             time: Long,
         ) {
+            // Every write to the places table re-ran the screens' place queries; "last seen"
+            // only needs hour precision.
+            val last = placeTouchedAt[placeHash]
+            if (last != null && time - last < 60 * 60 * 1000L) return
+            placeTouchedAt[placeHash] = time
             placeDao.insertIgnore(PlaceEntity(placeHash = placeHash, firstSeen = time, lastSeen = time))
             placeDao.touch(placeHash, time)
         }

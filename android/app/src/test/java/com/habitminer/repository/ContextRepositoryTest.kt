@@ -22,6 +22,7 @@ class ContextRepositoryTest {
             appUsageDao = mockUsageDao,
             contextDao = mockContextDao,
             deviceEventDao = mockDeviceEventDao,
+            batchDao = mock(),
         )
 
     @Test
@@ -30,7 +31,7 @@ class ContextRepositoryTest {
             val now = System.currentTimeMillis()
             val recentSnapshot = createSnapshot(timestamp = now - (5 * 60 * 1000L))
 
-            whenever(mockContextDao.getLatestSnapshot()).thenReturn(flowOf(recentSnapshot))
+            whenever(mockContextDao.getLatestSnapshotOnce()).thenReturn(recentSnapshot)
 
             assertTrue(repository.shouldSkipContextCollection())
         }
@@ -41,7 +42,7 @@ class ContextRepositoryTest {
             val now = System.currentTimeMillis()
             val oldSnapshot = createSnapshot(timestamp = now - (15 * 60 * 1000L))
 
-            whenever(mockContextDao.getLatestSnapshot()).thenReturn(flowOf(oldSnapshot))
+            whenever(mockContextDao.getLatestSnapshotOnce()).thenReturn(oldSnapshot)
 
             assertFalse(repository.shouldSkipContextCollection())
         }
@@ -49,7 +50,7 @@ class ContextRepositoryTest {
     @Test
     fun `shouldSkipContextCollection returns false when no snapshot exists`() =
         runBlocking {
-            whenever(mockContextDao.getLatestSnapshot()).thenReturn(flowOf(null))
+            whenever(mockContextDao.getLatestSnapshotOnce()).thenReturn(null)
 
             assertFalse(repository.shouldSkipContextCollection())
         }

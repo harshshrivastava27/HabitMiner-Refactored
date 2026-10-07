@@ -662,4 +662,26 @@ class SleepDaysTest {
         assertNull(days[0].night)
         assertEquals(60 * MIN, days[0].totalMs)
     }
+
+    // ---- Unlock merge (Extended) --------------------------------------------------------
+
+    @Test
+    fun unlockMergeCountsAnUnlockSeenByBothRecordsOnce() {
+        val system = listOf(1_000_000L, 2_000_000L)
+        val receiver = listOf(1_004_000L, 3_000_000L)
+        assertEquals(listOf(1_000_000L, 2_000_000L, 3_000_000L), UnlockMerge.merge(system, receiver))
+    }
+
+    @Test
+    fun unlockMergeKeepsEitherListWhenTheOtherIsEmpty() {
+        assertEquals(listOf(5L, 9L), UnlockMerge.merge(emptyList(), listOf(5L, 9L)))
+        assertEquals(listOf(5L, 9L), UnlockMerge.merge(listOf(5L, 9L), emptyList()))
+    }
+
+    @Test
+    fun unlockMergeKeepsReceiverUnlocksFarFromSystemOnes() {
+        val system = listOf(100_000L)
+        val receiver = listOf(10_000L, 100_010L, 200_000L)
+        assertEquals(listOf(10_000L, 100_000L, 200_000L), UnlockMerge.merge(system, receiver))
+    }
 }

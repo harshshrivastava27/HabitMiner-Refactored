@@ -126,7 +126,7 @@ object Notifier {
     ) {
         val builder =
             NotificationCompat.Builder(context, CHANNEL_CHECKINS)
-                .setSmallIcon(android.R.drawable.ic_menu_help)
+                .setSmallIcon(com.habitminer.R.drawable.ic_stat_habitminer)
                 .setContentTitle("Quick check-in")
                 .setContentText("What are you doing right now? One tap helps HabitMiner learn.")
                 .setContentIntent(openApp(context, 10, OPEN_CHECKIN, promptedAt))
@@ -144,7 +144,7 @@ object Notifier {
     ) {
         val builder =
             NotificationCompat.Builder(context, CHANNEL_NUDGES)
-                .setSmallIcon(android.R.drawable.ic_menu_recent_history)
+                .setSmallIcon(com.habitminer.R.drawable.ic_stat_habitminer)
                 .setContentTitle(nudge.title)
                 .setContentText(nudge.body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(nudge.body))
@@ -161,7 +161,7 @@ object Notifier {
         digest.lines.forEach { style.addLine(it) }
         val builder =
             NotificationCompat.Builder(context, CHANNEL_DIGEST)
-                .setSmallIcon(android.R.drawable.ic_menu_week)
+                .setSmallIcon(com.habitminer.R.drawable.ic_stat_habitminer)
                 .setContentTitle(digest.title)
                 .setContentText(digest.lines.firstOrNull() ?: "Tap to see your week")
                 .setStyle(style)
@@ -197,7 +197,7 @@ object Notifier {
         val why = if (nap.evidence.isEmpty()) "Your phone was untouched." else "Your phone was untouched: ${nap.evidence.joinToString(", ")}."
         val builder =
             NotificationCompat.Builder(context, CHANNEL_CHECKINS)
-                .setSmallIcon(android.R.drawable.ic_menu_help)
+                .setSmallIcon(com.habitminer.R.drawable.ic_stat_habitminer)
                 .setContentTitle("Were you asleep $range?")
                 .setContentText(why)
                 .setStyle(NotificationCompat.BigTextStyle().bigText("$why One tap helps HabitMiner learn your naps."))
@@ -218,7 +218,7 @@ object Notifier {
         val body = "About $pct% ${if (shift.less) "less" else "more"} phone time than usual. What's going on?"
         val builder =
             NotificationCompat.Builder(context, CHANNEL_CHECKINS)
-                .setSmallIcon(android.R.drawable.ic_menu_help)
+                .setSmallIcon(com.habitminer.R.drawable.ic_stat_habitminer)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText("$body Days you label are kept out of your usual pattern."))
@@ -239,7 +239,7 @@ object Notifier {
         val keys = summary.keys.toTypedArray()
         val builder =
             NotificationCompat.Builder(context, CHANNEL_DEVIATIONS)
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setSmallIcon(com.habitminer.R.drawable.ic_stat_habitminer)
                 .setContentTitle(summary.title)
                 .setContentText(summary.lines.firstOrNull()?.substringAfter(": ") ?: "Tap to see what was different")
                 .setStyle(style)

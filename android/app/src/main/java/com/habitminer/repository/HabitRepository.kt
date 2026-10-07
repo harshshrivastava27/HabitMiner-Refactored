@@ -17,6 +17,7 @@ class HabitRepository
         private val habitDao: HabitDao,
         private val baselineDao: BaselineDao,
         private val deviationDao: DeviationDao,
+        private val batchDao: com.habitminer.data.BatchDao,
     ) {
         fun getAllHabits(): Flow<List<DiscoveredHabitEntity>> = habitDao.getAllHabits()
 
@@ -53,10 +54,13 @@ class HabitRepository
         suspend fun replaceDeviationsSince(
             sinceMs: Long,
             deviations: List<DeviationEntity>,
-        ) {
-            deviationDao.deleteSince(sinceMs)
-            deviations.forEach { deviationDao.insert(it) }
-        }
+        ) = batchDao.replaceDeviationsSince(sinceMs, deviations)
+
+        /** Stores a rebuilt model (baselines and routines) in one transaction. */
+        suspend fun replaceModel(
+            baselines: List<BaselineEntity>,
+            habits: List<DiscoveredHabitEntity>,
+        ) = batchDao.replaceModel(baselines, habits)
 
         suspend fun clearOldData(retentionCutoffMs: Long) {
             habitDao.deleteOlderThan(retentionCutoffMs)

@@ -156,13 +156,23 @@ class ImportManager
             return parsed.size
         }
 
-        /** Unlocks and notifications this app recorded (system unlock history stays on the phone). */
+        /**
+         * Unlocks, notifications and screen events. The original HabitMiner exported the
+         * system's unlock history as "UNLOCK" rows with source "system"; those become
+         * KEYGUARD_HIDDEN events, the type Extended keeps them as, so imported history feeds
+         * sleep and pickup analysis like unlocks recorded here.
+         */
         private suspend fun importDeviceEvents(rows: List<Map<String, String>>): Int {
             val existing = deviceEventDao.getKeys().toHashSet()
             val parsed =
                 rows.mapNotNull { r ->
-                    if (r["source"] == "system") return@mapNotNull null
-                    val type = r["eventType"]?.ifEmpty { null } ?: return@mapNotNull null
+                    val raw = r["eventType"]?.ifEmpty { null } ?: return@mapNotNull null
+                    val type =
+                        if (r["source"] == "system" && raw == com.habitminer.collection.DeviceEvents.UNLOCK) {
+                            com.habitminer.collection.DeviceEvents.KEYGUARD_HIDDEN
+                        } else {
+                            raw
+                        }
                     val ts = r["timestamp"]?.toLongOrNull() ?: return@mapNotNull null
                     if (!existing.add("$type:$ts")) return@mapNotNull null
                     DeviceEventEntity(eventType = type, packageName = r["packageName"]?.ifEmpty { null }, timestamp = ts)

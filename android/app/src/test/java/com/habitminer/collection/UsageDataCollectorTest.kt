@@ -42,7 +42,8 @@ class UsageDataCollectorTest {
         assertEquals("com.whatsapp", merged[0].packageName)
         assertEquals(now, merged[0].startTime)
         assertEquals(now + 180_000, merged[0].endTime)
-        assertEquals(180_000, merged[0].durationMs)
+        // Only the time in front counts: 1 min + 1 min, not the 3-minute span.
+        assertEquals(120_000, merged[0].durationMs)
     }
 
     @Test

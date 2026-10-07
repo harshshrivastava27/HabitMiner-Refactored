@@ -7,65 +7,64 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.IntentFilter
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
-import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.habitminer.analytics.TimeUtil
+import com.habitminer.data.DeviceEventEntity
 import com.habitminer.data.PrefsKeys
 import com.habitminer.domain.AppIdentityResolver
+import com.habitminer.proactive.ProactiveEngine
 import com.habitminer.repository.ContextRepository
 import com.habitminer.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
-import java.util.Calendar
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
+/**
+ * Keeps HabitMiner running in the background: shows the ongoing notification, listens for
+ * unlocks (Android only delivers those to receivers registered at runtime) and keeps the
+ * reading alarm going. The readings themselves happen in [ReadingRunner]; the service no
+ * longer holds a wake lock or runs its own timer loop.
+ */
 @AndroidEntryPoint
 class MonitoringService : Service() {
-    @Inject
-    lateinit var contextRepository: ContextRepository
+    @Inject lateinit var contextRepository: ContextRepository
 
-    @Inject
-    lateinit var sensorCollector: SensorContextCollector
+    @Inject lateinit var appIdentityResolver: AppIdentityResolver
 
-    @Inject
-    lateinit var appIdentityResolver: AppIdentityResolver
+    @Inject lateinit var readingRunner: ReadingRunner
 
-    @Inject
-    lateinit var usageDataCollector: UsageDataCollector
+    @Inject lateinit var proactiveEngine: ProactiveEngine
 
-    @Inject
-    lateinit var proactiveEngine: com.habitminer.proactive.ProactiveEngine
+    @Inject lateinit var wifiPlaceProvider: WifiPlaceProvider
 
-    @Inject
-    lateinit var wifiPlaceProvider: WifiPlaceProvider
+    @Inject lateinit var stepCounterMonitor: StepCounterMonitor
 
-    @Inject
-    lateinit var feedbackRepository: com.habitminer.repository.FeedbackRepository
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    @Inject
-    lateinit var stepCounterMonitor: StepCounterMonitor
+    @Volatile private var eventReadingJob: Job? = null
 
-    // Battery-aware sensing: the loop interval follows the current mode (5–30 min).
-    @Volatile private var sensingMode: com.habitminer.analytics.SensingMode = com.habitminer.analytics.SensingMode.NORMAL
+    /** What the notification currently says, so it's only re-posted when that changes. */
+    @Volatile private var shownContent: String? = null
 
-    // ACTION_USER_PRESENT is not delivered to manifest-declared receivers on Android 8+,
-    // so unlocks are only captured by a receiver registered at runtime while we're alive.
+    @Volatile private var todayScreenTimeMs: Long = 0L
+
+    @Volatile private var lastUsedApp: String = ""
+
     private val unlockReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(
@@ -74,54 +73,12 @@ class MonitoringService : Service() {
             ) {
                 if (intent.action != Intent.ACTION_USER_PRESENT) return
                 serviceScope.launch {
-                    contextRepository.insertDeviceEvent(
-                        com.habitminer.data.DeviceEventEntity(eventType = DeviceEventReceiver.EVENT_UNLOCK),
-                    )
+                    contextRepository.insertDeviceEvent(DeviceEventEntity(eventType = DeviceEvents.UNLOCK))
                 }
-                requestEventReading(Trigger.UNLOCK)
+                requestEventReading(ReadingRunner.Trigger.UNLOCK)
             }
         }
     private var unlockReceiverRegistered = false
-
-    /**
-     * Why a snapshot is being taken. Scheduled readings run every 5–30 minutes, so on their
-     * own the surroundings shown in the app could be half an hour old. Unlocking the phone
-     * and opening HabitMiner also take a reading, so they're fresh while the phone is in use.
-     */
-    private enum class Trigger(val minSensorGapMs: Long) {
-        SCHEDULE(0L),
-        UNLOCK(5 * 60_000L),
-        APP_OPEN(60_000L),
-    }
-
-    @Volatile private var eventReadingJob: Job? = null
-
-    @Volatile private var loopRunning = false
-
-    private fun requestEventReading(trigger: Trigger) {
-        if (isMonitoringPaused || eventReadingJob?.isActive == true) return
-        eventReadingJob =
-            serviceScope.launch {
-                // After an unlock, wait until the phone is actually in use before sampling.
-                if (trigger == Trigger.UNLOCK) delay(3_000L)
-                runCatching { collectContextSnapshot(trigger) }
-                    .onFailure { android.util.Log.w("HabitMiner", "Event reading failed", it) }
-            }
-    }
-
-    private val serviceJob = Job()
-    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
-    private var isMonitoringPaused = false
-    private var wakeLock: PowerManager.WakeLock? = null
-
-    // Cache variables for rich notification
-    @Volatile private var todayScreenTimeMs: Long = 0L
-
-    @Volatile private var lastUsedApp: String = ""
-
-    @Volatile private var lastContextTime: Long = 0L
-
-    @Volatile private var activeSensors: Int = 5
 
     companion object {
         const val ACTION_START = "com.habitminer.action.START"
@@ -132,13 +89,11 @@ class MonitoringService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "monitoring_channel"
 
-        // MutableStateFlow for reactive liveness tracking
         val isServiceRunning = MutableStateFlow(false)
 
         /**
-         * Asks the running service for a fresh sensor reading (used when the app is opened, so
-         * "Around you" reflects right now). Does nothing if monitoring isn't running; readings
-         * are rate-limited to one a minute.
+         * Asks the running service for a fresh reading (when the app is opened, so the
+         * surroundings shown are current). Readings are rate-limited to one every 5 minutes.
          */
         fun requestFreshReading(context: Context) {
             if (!isServiceRunning.value) return
@@ -152,34 +107,13 @@ class MonitoringService : Service() {
         super.onCreate()
         createNotificationChannel()
         isServiceRunning.value = true
-        // Keep the hardware step counter listening for as long as monitoring runs.
         stepCounterMonitor.start()
-
         try {
-            ContextCompat.registerReceiver(
-                this,
-                unlockReceiver,
-                IntentFilter(Intent.ACTION_USER_PRESENT),
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
+            ContextCompat.registerReceiver(this, unlockReceiver, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_NOT_EXPORTED)
             unlockReceiverRegistered = true
         } catch (e: Exception) {
             android.util.Log.w("HabitMiner", "Could not register unlock receiver", e)
         }
-
-        // Initial population of the rich notification state to avoid "0m today" delay
-        serviceScope.launch {
-            updateRichNotificationState()
-            updateNotification()
-        }
-
-        // Acquire a partial wakelock so Doze does not suspend the 15-min collection loop (BP-1)
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock =
-            pm.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "HabitMiner::MonitoringLock",
-            ).also { it.acquire(4 * 60 * 60 * 1000L) }
     }
 
     override fun onStartCommand(
@@ -188,46 +122,63 @@ class MonitoringService : Service() {
         startId: Int,
     ): Int {
         when (intent?.action) {
-            ACTION_START -> {
-                isMonitoringPaused = false
-                promoteToForeground()
-                startMonitoringLoop()
-            }
             ACTION_PAUSE -> {
-                isMonitoringPaused = true
-                updateNotification()
+                setPaused(true)
+                refreshNotification(force = true)
             }
             ACTION_RESUME -> {
-                isMonitoringPaused = false
-                updateNotification()
-                // Force an immediate collection on resume
-                serviceScope.launch { collectContextSnapshot(Trigger.SCHEDULE) }
+                setPaused(false)
+                refreshNotification(force = true)
+                requestEventReading(ReadingRunner.Trigger.SCHEDULE)
             }
             ACTION_STOP -> {
+                ReadingAlarm.cancel(this)
                 stopSelf()
             }
             ACTION_COLLECT_NOW -> {
-                // If the system had stopped us, this start also has to bring monitoring back.
-                if (!loopRunning) {
-                    promoteToForeground()
-                    startMonitoringLoop()
-                }
-                requestEventReading(Trigger.APP_OPEN)
+                promoteToForeground()
+                ensureAlarm()
+                requestEventReading(ReadingRunner.Trigger.APP_OPEN)
             }
             else -> {
-                // Started by system after kill (START_STICKY resurrection) or BOOT_COMPLETED
-                isMonitoringPaused = false
+                // ACTION_START, a restart after the system stopped us, or boot.
                 promoteToForeground()
-                startMonitoringLoop()
+                ensureAlarm()
+                refreshNotification(force = true)
             }
         }
         return START_STICKY
     }
 
+    private fun setPaused(paused: Boolean) {
+        getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PrefsKeys.MONITORING_PAUSED, paused).apply()
+    }
+
+    private fun isPaused(): Boolean = getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).getBoolean(PrefsKeys.MONITORING_PAUSED, false)
+
+    /** Starts the reading alarm chain if it isn't already waiting. */
+    private fun ensureAlarm() {
+        if (!ReadingAlarm.isScheduled(this)) ReadingAlarm.schedule(this, 60_000L)
+    }
+
+    private fun requestEventReading(trigger: ReadingRunner.Trigger) {
+        if (isPaused() || eventReadingJob?.isActive == true) return
+        eventReadingJob =
+            serviceScope.launch {
+                // After an unlock, wait until the phone is actually in use before sampling.
+                if (trigger == ReadingRunner.Trigger.UNLOCK) delay(3_000L)
+                runCatching { readingRunner.read(trigger) }
+                    .onFailure { android.util.Log.w("HabitMiner", "Event reading failed", it) }
+                // Right after an unlock is a good moment for a question or a nudge.
+                if (trigger == ReadingRunner.Trigger.UNLOCK) runCatching { proactiveEngine.tick() }
+                refreshNotification()
+            }
+    }
+
     private fun promoteToForeground() {
-        val notification = buildNotification()
-        // Wi-Fi places need the location type so the network's BSSID isn't redacted while
-        // the app is in the background. Fall back to the plain type if Android refuses it.
+        val notification = buildNotification(notificationContent())
+        // Wi-Fi places need the location type so the network's BSSID isn't redacted while the
+        // app is in the background. Fall back to the plain type if Android refuses it.
         val wantsLocation = wifiPlaceProvider.isEnabled() && wifiPlaceProvider.hasPermission()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val base = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
@@ -239,14 +190,12 @@ class MonitoringService : Service() {
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                @Suppress("DEPRECATION")
                 startForeground(
                     NOTIFICATION_ID,
                     notification,
                     if (wantsLocation) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE,
                 )
             } catch (e: Exception) {
-                @Suppress("DEPRECATION")
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE)
             }
         } else {
@@ -254,281 +203,72 @@ class MonitoringService : Service() {
         }
     }
 
-    private fun startMonitoringLoop() {
-        // Cancel existing monitoring coroutine without cancelling the scope (CRITICAL-3 / MS-1)
-        serviceJob.cancelChildren()
-        loopRunning = true
-
+    /** Re-posts the notification only when its text changed (each post wakes the system UI). */
+    private fun refreshNotification(force: Boolean = false) {
         serviceScope.launch {
-            while (true) {
-                if (!isMonitoringPaused) {
-                    collectContextSnapshot(Trigger.SCHEDULE)
-                }
-                delay(sensingMode.intervalMs)
+            runCatching {
+                val zone = ZoneId.systemDefault()
+                val startOfDay = TimeUtil.startOfDay(TimeUtil.dateOf(System.currentTimeMillis(), zone), zone)
+                val today = contextRepository.getUsageSince(startOfDay).filterNot { appIdentityResolver.isLauncher(it.packageName) }
+                todayScreenTimeMs = today.sumOf { it.durationMs }
+                lastUsedApp = today.maxByOrNull { it.startTime }?.let { appIdentityResolver.getAppName(it.packageName) } ?: ""
             }
-        }
-
-        // Check-ins, nudges and the weekly digest are evaluated on their own 5-minute tick so
-        // a nudge isn't delayed by a 30-minute idle sensing interval.
-        serviceScope.launch {
-            delay(60_000L)
-            while (true) {
-                if (!isMonitoringPaused) {
-                    proactiveEngine.tick()
-                }
-                delay(com.habitminer.proactive.ProactiveEngine.TICK_INTERVAL_MS)
-            }
+            val content = notificationContent()
+            if (!force && content == shownContent) return@launch
+            shownContent = content
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIFICATION_ID, buildNotification(content))
         }
     }
 
-    private suspend fun chooseSensingMode(
-        isScreenOn: Boolean,
-        isCharging: Boolean,
-        batteryLevel: Int,
-    ): com.habitminer.analytics.SensingMode {
-        val latest = contextRepository.getLatestSnapshotWithSensors().first()
-        val recentlyMoving =
-            latest?.takeIf { System.currentTimeMillis() - it.timestamp < 20 * 60 * 1000L }
-                ?.let {
-                    com.habitminer.analytics.ContextLabels.motion(
-                        it.accelVariance.takeIf { v -> v >= 0f },
-                        it.recentSteps.takeIf { s -> s >= 0 },
-                    )
-                }
-                ?.let { it != com.habitminer.analytics.Motion.STILL }
-        val mode = com.habitminer.analytics.SensingPolicy.choose(isScreenOn, recentlyMoving, isCharging, batteryLevel)
-        getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PrefsKeys.SENSING_MODE, mode.name).apply()
-        return mode
+    private fun notificationContent(): String {
+        if (isPaused()) return "Paused · tap Resume to continue"
+        val h = TimeUnit.MILLISECONDS.toHours(todayScreenTimeMs)
+        val m = TimeUnit.MILLISECONDS.toMinutes(todayScreenTimeMs) % 60
+        val time = if (h > 0) "${h}h ${m}m" else "${m}m"
+        return "$time on your phone today" + if (lastUsedApp.isNotEmpty()) " · last: $lastUsedApp" else ""
     }
 
-    private suspend fun collectContextSnapshot(trigger: Trigger) {
-        val preferences = getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
-        if (!preferences.getBoolean(PrefsKeys.COLLECTION_ENABLED, true)) {
-            stopSelf()
-            return
-        }
-
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val isScreenOn = pm.isInteractive
-
-        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        val batteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        val isCharging = batteryManager.isCharging
-
-        // Match DataCollectionWorker's battery guard so we don't drain battery at low charge (PERF-5)
-        val shouldCollectSensors = isScreenOn && (batteryLevel >= 15 || isCharging)
-        // Unlock and app-open readings exist only to refresh the sensors, so they're skipped
-        // when sensors can't be read or a recent enough reading already exists.
-        if (trigger != Trigger.SCHEDULE &&
-            (!shouldCollectSensors || contextRepository.hasSensorReadingWithin(trigger.minSensorGapMs))
-        ) {
-            return
-        }
-        sensingMode = chooseSensingMode(isScreenOn, isCharging, batteryLevel)
-
-        // Query real unlock and notification counts from the event log (MS-2)
-        val startOfDay =
-            Calendar.getInstance().run {
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-                timeInMillis
-            }
-        val recordedUnlocks = contextRepository.countDeviceEventsSince(com.habitminer.collection.DeviceEventReceiver.EVENT_UNLOCK, startOfDay)
-        val systemUnlocks = runCatching { usageDataCollector.countUnlocksSince(startOfDay) }.getOrNull() ?: 0
-        val unlockCount = maxOf(recordedUnlocks, systemUnlocks)
-        val notificationsLastHour =
-            if (HabitNotificationListener.isEnabled(this)) {
-                contextRepository.countDeviceEventsSince(
-                    com.habitminer.collection.DeviceEventReceiver.EVENT_NOTIFICATION,
-                    System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1),
+    private fun buildNotification(content: String): Notification {
+        val paused = isPaused()
+        val mainIntent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP }
+        val mainPendingIntent = PendingIntent.getActivity(this, 3, mainIntent, PendingIntent.FLAG_IMMUTABLE)
+        val action =
+            if (paused) {
+                NotificationCompat.Action(
+                    0,
+                    "Resume",
+                    PendingIntent.getService(this, 1, Intent(this, MonitoringService::class.java).setAction(ACTION_RESUME), PendingIntent.FLAG_IMMUTABLE),
                 )
             } else {
-                -1
+                NotificationCompat.Action(
+                    0,
+                    "Pause",
+                    PendingIntent.getService(this, 2, Intent(this, MonitoringService::class.java).setAction(ACTION_PAUSE), PendingIntent.FLAG_IMMUTABLE),
+                )
             }
-
-        contextRepository.collectionMutex.withLock {
-            // Skip if a snapshot was taken very recently (e.g. by the WorkManager fallback).
-            val minGap = (sensingMode.intervalMs - 60_000L).coerceAtLeast(4 * 60_000L)
-            val skip =
-                if (trigger == Trigger.SCHEDULE) {
-                    contextRepository.shouldSkipContextCollection(minGap)
-                } else {
-                    // Re-check inside the lock in case another reading just finished.
-                    contextRepository.hasSensorReadingWithin(trigger.minSensorGapMs)
-                }
-            if (skip) {
-                android.util.Log.d("HabitMiner", "Skipping context collection: recent snapshot exists")
-            } else {
-                val place = wifiPlaceProvider.currentPlaceHash()
-                val snapshot =
-                    sensorCollector.collectSnapshot(
-                        unlockCount = unlockCount,
-                        isScreenOn = isScreenOn,
-                        notificationsLastHour = notificationsLastHour,
-                        collectSensors = shouldCollectSensors,
-                        batteryLevel = batteryLevel,
-                        isCharging = isCharging,
-                        wifiPlace = place,
-                    )
-
-                contextRepository.insertSnapshot(snapshot)
-                if (place != null) feedbackRepository.recordPlaceSeen(place, snapshot.timestamp)
-            }
-        }
-        updateRichNotificationState()
-        updateNotification()
-    }
-
-    private suspend fun updateRichNotificationState() {
-        try {
-            val startOfDay =
-                Calendar.getInstance().run {
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                    timeInMillis
-                }
-
-            // Get usage directly without blocking on the Flow endlessly (first() gives current snapshot)
-            val usageList = contextRepository.getTodayUsage(startOfDay).first()
-            val validUsage = usageList.filterNot { appIdentityResolver.isLauncher(it.packageName) }
-            todayScreenTimeMs = validUsage.sumOf { it.durationMs }
-            lastUsedApp = validUsage.firstOrNull()?.let { appIdentityResolver.getAppName(it.packageName) } ?: ""
-
-            // Get last context
-            val latestContext = contextRepository.getLatestSnapshot().first()
-            lastContextTime = latestContext?.timestamp ?: 0L
-
-            // Check sensors
-            val sensorManager = getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager
-            var sensors = 0
-            if (sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER) != null) sensors++
-            if (sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_GYROSCOPE) != null) sensors++
-            if (sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_LIGHT) != null) sensors++
-            if (sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_PROXIMITY) != null) sensors++
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_STEP_COUNTER) != null
-            ) {
-                sensors++
-            }
-            activeSensors = sensors
-        } catch (e: Exception) {
-            android.util.Log.e("HabitMiner", "Failed to update notification state", e)
-        }
-    }
-
-    private fun buildNotification(): Notification {
-        val preferences = getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
-        val isMissingPermissions = !preferences.getBoolean(PrefsKeys.HAS_ALL_PERMISSIONS, true)
-
-        val title: String
-        val content: String
-        val actionText: String
-        val actionIntent: PendingIntent
-
-        if (isMissingPermissions) {
-            title = "⚠ Collection needs attention"
-            content = "Permissions missing or revoked"
-            actionText = "Open App"
-            val intent =
-                Intent(this, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                }
-            actionIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        } else if (isMonitoringPaused) {
-            title = "HabitMiner · Paused"
-            content = "Monitoring is currently paused"
-            actionText = "Resume"
-            val intent = Intent(this, MonitoringService::class.java).apply { action = ACTION_RESUME }
-            actionIntent = PendingIntent.getService(this, 1, intent, PendingIntent.FLAG_IMMUTABLE)
-        } else {
-            val h = TimeUnit.MILLISECONDS.toHours(todayScreenTimeMs)
-            val m = TimeUnit.MILLISECONDS.toMinutes(todayScreenTimeMs) % 60
-            val timeString = if (h > 0) "${h}h ${m}m" else "${m}m"
-            val appString = if (lastUsedApp.isNotEmpty()) " · $lastUsedApp" else ""
-
-            title = "HabitMiner · Monitoring"
-            content = "🟢 $timeString today$appString"
-            actionText = "Pause"
-            val intent = Intent(this, MonitoringService::class.java).apply { action = ACTION_PAUSE }
-            actionIntent = PendingIntent.getService(this, 2, intent, PendingIntent.FLAG_IMMUTABLE)
-        }
-
-        val mainIntent =
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            }
-        val mainPendingIntent = PendingIntent.getActivity(this, 3, mainIntent, PendingIntent.FLAG_IMMUTABLE)
-
-        val builder =
-            NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle(title)
-                .setContentText(content)
-                .setSmallIcon(android.R.drawable.ic_menu_compass)
-                .setContentIntent(mainPendingIntent)
-                .addAction(0, actionText, actionIntent)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE)
-
-        // Only add InboxStyle if we are actively monitoring and have permissions
-        if (!isMissingPermissions && !isMonitoringPaused) {
-            val inboxStyle = NotificationCompat.InboxStyle()
-
-            // Format duration
-            val h = TimeUnit.MILLISECONDS.toHours(todayScreenTimeMs)
-            val m = TimeUnit.MILLISECONDS.toMinutes(todayScreenTimeMs) % 60
-            val timeString = if (h > 0) "${h}h ${m}m" else "${m}m"
-
-            // Format freshness
-            val freshness =
-                if (lastContextTime > 0) {
-                    val diffMs = System.currentTimeMillis() - lastContextTime
-                    val diffMins = TimeUnit.MILLISECONDS.toMinutes(diffMs)
-                    if (diffMins == 0L) "Just now" else "$diffMins min ago"
-                } else {
-                    "Unknown"
-                }
-
-            // Learning status
-            val daysOfData = preferences.getInt(PrefsKeys.DAYS_OF_DATA, 0)
-            val learningStatus = if (daysOfData >= 5) "Model up to date" else "Building baseline: $daysOfData/5 days"
-
-            inboxStyle.addLine("Status: 🟢 Active")
-            inboxStyle.addLine("Usage: $timeString today")
-            if (lastUsedApp.isNotEmpty()) inboxStyle.addLine("Last App: $lastUsedApp")
-            inboxStyle.addLine("Context: $freshness")
-            inboxStyle.addLine("Sensors: $activeSensors/5 active")
-            inboxStyle.addLine("Learning: $learningStatus")
-
-            builder.setStyle(inboxStyle)
-        }
-
-        return builder.build()
-    }
-
-    private fun updateNotification() {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_ID, buildNotification())
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(if (paused) "Monitoring paused" else "Monitoring")
+            .setContentText(content)
+            .setSmallIcon(com.habitminer.R.drawable.ic_stat_habitminer)
+            .setContentIntent(mainPendingIntent)
+            .addAction(action)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel =
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Context Monitoring",
-                    NotificationManager.IMPORTANCE_LOW,
-                ).apply {
-                    description = "Continuous contextual monitoring for HabitMiner"
-                    setShowBadge(false)
-                }
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-        }
+        val channel =
+            NotificationChannel(CHANNEL_ID, "Background monitoring", NotificationManager.IMPORTANCE_MIN).apply {
+                description = "Shown while HabitMiner records your usage. You can hide it in system settings."
+                setShowBadge(false)
+            }
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -540,11 +280,7 @@ class MonitoringService : Service() {
             runCatching { unregisterReceiver(unlockReceiver) }
             unlockReceiverRegistered = false
         }
-        // DO NOT call sensorCollector.shutdown() here. It's a @Singleton so its HandlerThread
-        // must outlive this service lifecycle to support DataCollectionWorker and future restarts.
+        stepCounterMonitor.stop()
         serviceScope.cancel()
-        // Release wakelock (BP-1)
-        wakeLock?.let { if (it.isHeld) it.release() }
-        wakeLock = null
     }
 }

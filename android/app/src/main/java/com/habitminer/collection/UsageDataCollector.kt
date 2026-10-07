@@ -84,7 +84,9 @@ class UsageDataCollector
         }
 
         /**
-         * Counts today's unlocks from the system event log (KEYGUARD_HIDDEN, API 28+).
+         * Counts unlocks from the system event log (KEYGUARD_HIDDEN, API 28+) by reading it
+         * directly. Prefer [ContextRepository.countUnlocksSince], which reads the copy that
+         * [UsageIngestor] keeps in the database; this direct read is for tests and one-offs.
          * Unlike our USER_PRESENT receiver this also sees unlocks that happened while
          * HabitMiner was not running. Returns null when the platform can't provide it.
          */
@@ -126,7 +128,12 @@ class UsageDataCollector
             }
         }
 
-        private fun getCategoryForPackage(packageName: String): String {
+        /** PackageManager lookups are slow, and a package's category doesn't change. */
+        private val categoryCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+        private fun getCategoryForPackage(packageName: String): String = categoryCache.getOrPut(packageName) { lookUpCategory(packageName) }
+
+        private fun lookUpCategory(packageName: String): String {
             return try {
                 val pm = context.packageManager
                 val info = pm.getApplicationInfo(packageName, 0)
@@ -145,25 +152,37 @@ class UsageDataCollector
             }
         }
 
-        suspend fun collectUsageSince(
+        /** What one pass over the usage-event log produced. */
+        data class UsageRead(
+            /** Sessions that ended after the requested start (including ones still open). */
+            val sessions: List<AppUsageEntity>,
+            /** Lock-screen, screen and power events in the window, oldest first. */
+            val events: List<com.habitminer.data.DeviceEventEntity>,
+            /** Start of the earliest session still open when the read ended, or null if none. */
+            val openSince: Long?,
+        )
+
+        /**
+         * Reads Android's usage-event log from [queryStart] to [endMs] once and turns it into
+         * app sessions and device events. Sessions ending before [sinceMs] are dropped: they
+         * were stored by an earlier read. [queryStart] can be earlier than [sinceMs] so a
+         * session that was already open last time has its start event in the window.
+         */
+        fun read(
+            queryStart: Long,
+            endMs: Long,
             sinceMs: Long,
             prevStoredPackage: String? = null,
             isHistorical: Boolean = false,
-            overlapMs: Long = 24 * 60 * 60 * 1000L,
-        ): List<AppUsageEntity> {
-            val endMs = System.currentTimeMillis()
+        ): UsageRead {
             val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-            // Re-read a short overlap so a session already in progress at the previous
-            // worker boundary has its RESUMED event available. Stable IDs below make
-            // overlapping reads idempotent in Room.
-            val queryStart = (sinceMs - overlapMs).coerceAtLeast(0L)
-            val events = usageStatsManager.queryEvents(queryStart, endMs)
+            val events = usageStatsManager.queryEvents(queryStart.coerceAtLeast(0L), endMs)
 
             val result = mutableListOf<AppUsageEntity>()
+            val deviceEvents = mutableListOf<com.habitminer.data.DeviceEventEntity>()
             val startTimes = mutableMapOf<String, Long>()
             val activeCounts = mutableMapOf<String, Int>()
 
-            // Pre-compute event type constants outside the hot loop
             val foregroundEvent =
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     UsageEvents.Event.ACTIVITY_RESUMED
@@ -178,145 +197,117 @@ class UsageDataCollector
                     @Suppress("DEPRECATION")
                     UsageEvents.Event.MOVE_TO_BACKGROUND
                 }
-            val stoppedEvent =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    UsageEvents.Event.ACTIVITY_STOPPED
-                } else {
-                    -1
-                }
+            val stoppedEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) UsageEvents.Event.ACTIVITY_STOPPED else -1
 
-            val screenOffEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) 16 else -1 // SCREEN_NON_INTERACTIVE
-            val keyguardShownEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) 18 else -1 // KEYGUARD_SHOWN
-            val deviceShutdownEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) 26 else -1 // DEVICE_SHUTDOWN
+            fun close(
+                pkg: String,
+                start: Long,
+                end: Long,
+            ) {
+                val duration = end - start
+                if (duration > 2000) result.add(entity(pkg, start, end, duration, isHistorical))
+            }
 
             val event = UsageEvents.Event()
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
+                val type = event.eventType
                 val pkg = event.packageName
-                val cls = event.className ?: "unknown_class"
 
-                // If screen turns off or device shuts down, close all active sessions
-                if (event.eventType == screenOffEvent || event.eventType == keyguardShownEvent || event.eventType == deviceShutdownEvent) {
-                    val activePkgs = startTimes.keys.toList()
-                    for (activePkg in activePkgs) {
-                        val start = startTimes.remove(activePkg)
-                        activeCounts.remove(activePkg)
-                        if (start != null) {
-                            val duration = event.timeStamp - start
-                            if (duration > 2000) {
-                                val cal = Calendar.getInstance().apply { timeInMillis = start }
-                                result.add(
-                                    AppUsageEntity(
-                                        id = stableSessionId(activePkg, start),
-                                        packageName = activePkg,
-                                        appName = appIdentityResolver.getAppName(activePkg),
-                                        appCategory = getCategoryForPackage(activePkg),
-                                        startTime = start,
-                                        endTime = event.timeStamp,
-                                        durationMs = duration,
-                                        timeSlot = getTimeSlot(cal.get(Calendar.HOUR_OF_DAY)),
-                                        dayType = getDayType(cal.get(Calendar.DAY_OF_WEEK)),
-                                        isHistorical = isHistorical,
-                                    ),
-                                )
-                            }
-                        }
-                    }
+                DeviceEvents.nameFor(type)?.let { name ->
+                    deviceEvents.add(com.habitminer.data.DeviceEventEntity(eventType = name, timestamp = event.timeStamp))
+                }
+
+                // Screen off, lock screen shown or shutdown: whatever was in front has ended.
+                if (type == DeviceEvents.TYPE_SCREEN_NON_INTERACTIVE ||
+                    type == DeviceEvents.TYPE_KEYGUARD_SHOWN ||
+                    type == DeviceEvents.TYPE_DEVICE_SHUTDOWN
+                ) {
+                    for ((activePkg, start) in startTimes) close(activePkg, start, event.timeStamp)
+                    startTimes.clear()
+                    activeCounts.clear()
                     continue
                 }
 
-                // Exclude home/launcher packages, this app, and system UI from session tracking
-                if (appIdentityResolver.isLauncher(pkg) || pkg == context.packageName || pkg == "com.android.systemui") {
+                // Home screen, this app and the system UI aren't counted as app use.
+                if (pkg == null || appIdentityResolver.isLauncher(pkg) || pkg == context.packageName || pkg == "com.android.systemui") {
                     continue
                 }
 
-                if (event.eventType == foregroundEvent) {
+                if (type == foregroundEvent) {
                     val count = activeCounts.getOrDefault(pkg, 0)
-                    if (count == 0) {
-                        startTimes[pkg] = event.timeStamp
-                    }
+                    if (count == 0) startTimes[pkg] = event.timeStamp
                     activeCounts[pkg] = count + 1
-                } else if (event.eventType == backgroundEvent || event.eventType == stoppedEvent) {
+                } else if (type == backgroundEvent || type == stoppedEvent) {
                     val count = activeCounts.getOrDefault(pkg, 0)
-                    // ACTIVITY_STOPPED acts as a force-close (process kill): drain counter to 0
-                    val newCount = if (event.eventType == stoppedEvent) 0 else (count - 1).coerceAtLeast(0)
+                    // ACTIVITY_STOPPED acts as a force-close (process kill): drain the counter.
+                    val newCount = if (type == stoppedEvent) 0 else (count - 1).coerceAtLeast(0)
                     if (newCount == 0) {
                         activeCounts.remove(pkg)
-                        val start = startTimes.remove(pkg)
-                        if (start != null) {
-                            val duration = event.timeStamp - start
-                            if (duration > 2000) { // filter > 2000ms
-                                val cal = Calendar.getInstance().apply { timeInMillis = start }
-                                result.add(
-                                    AppUsageEntity(
-                                        id = stableSessionId(pkg, start),
-                                        packageName = pkg,
-                                        appName = appIdentityResolver.getAppName(pkg),
-                                        appCategory = getCategoryForPackage(pkg),
-                                        startTime = start,
-                                        endTime = event.timeStamp,
-                                        durationMs = duration,
-                                        timeSlot = getTimeSlot(cal.get(Calendar.HOUR_OF_DAY)),
-                                        dayType = getDayType(cal.get(Calendar.DAY_OF_WEEK)),
-                                        isHistorical = isHistorical,
-                                    ),
-                                )
-                            }
-                        }
+                        startTimes.remove(pkg)?.let { start -> close(pkg, start, event.timeStamp) }
                     } else {
                         activeCounts[pkg] = newCount
                     }
-                    if (count == 0) {
-                        // Fallback: missed foreground event — clear any orphaned start time
-                        startTimes.remove(pkg)
-                    }
+                    if (count == 0) startTimes.remove(pkg)
                 }
             }
 
-            // Include sessions still foregrounded when this collection ran. A later
-            // overlapping collection replaces this row with the longer duration.
+            // Sessions still in front when the read ended are stored up to now; the next read
+            // starts from their start time and replaces the row with the longer session.
+            var openSince: Long? = null
             for ((pkg, start) in startTimes) {
-                // Defensive cap at 4 hours (14400000 ms) in case of missed close events
-                val maxAllowedEnd = start + 14400000L
-                val actualEnd = if (endMs > maxAllowedEnd) maxAllowedEnd else endMs
-                val duration = actualEnd - start
-                if (duration > 2000L) {
-                    val cal = Calendar.getInstance().apply { timeInMillis = start }
-                    result.add(
-                        AppUsageEntity(
-                            id = stableSessionId(pkg, start),
-                            packageName = pkg,
-                            appName = appIdentityResolver.getAppName(pkg),
-                            appCategory = getCategoryForPackage(pkg),
-                            startTime = start,
-                            endTime = actualEnd,
-                            durationMs = duration,
-                            timeSlot = getTimeSlot(cal.get(Calendar.HOUR_OF_DAY)),
-                            dayType = getDayType(cal.get(Calendar.DAY_OF_WEEK)),
-                            isHistorical = isHistorical,
-                        ),
-                    )
-                }
+                val end = minOf(endMs, start + MAX_OPEN_SESSION_MS)
+                if (end - start > 2000L) result.add(entity(pkg, start, end, end - start, isHistorical))
+                if (endMs - start < MAX_OPEN_SESSION_MS) openSince = minOf(openSince ?: start, start)
             }
 
             result.sortBy { it.startTime }
-
-            // Merge contiguous or overlapping sessions of the same package (gap < 5 mins)
-            val mergedResult = mergeContiguousSessions(result)
-
+            val merged = mergeContiguousSessions(result)
             var tempPrev: String? = null
-            for (i in mergedResult.indices) {
-                mergedResult[i] = mergedResult[i].copy(previousPackageName = tempPrev)
-                tempPrev = mergedResult[i].packageName
+            for (i in merged.indices) {
+                merged[i] = merged[i].copy(previousPackageName = tempPrev)
+                tempPrev = merged[i].packageName
             }
-
-            val newSessions = mergedResult.filter { it.endTime > sinceMs }.toMutableList()
+            val newSessions = merged.filter { it.endTime > sinceMs }.toMutableList()
             if (newSessions.isNotEmpty() && newSessions.first().previousPackageName == null) {
                 newSessions[0] = newSessions[0].copy(previousPackageName = prevStoredPackage)
             }
-
-            return newSessions
+            return UsageRead(newSessions, deviceEvents, openSince)
         }
+
+        private fun entity(
+            pkg: String,
+            start: Long,
+            end: Long,
+            duration: Long,
+            isHistorical: Boolean,
+        ): AppUsageEntity {
+            val cal = Calendar.getInstance().apply { timeInMillis = start }
+            return AppUsageEntity(
+                id = stableSessionId(pkg, start),
+                packageName = pkg,
+                appName = appIdentityResolver.getAppName(pkg),
+                appCategory = getCategoryForPackage(pkg),
+                startTime = start,
+                endTime = end,
+                durationMs = duration,
+                timeSlot = getTimeSlot(cal.get(Calendar.HOUR_OF_DAY)),
+                dayType = getDayType(cal.get(Calendar.DAY_OF_WEEK)),
+                isHistorical = isHistorical,
+            )
+        }
+
+        /**
+         * Sessions since [sinceMs] in one read with a fixed overlap. Kept for one-off reads;
+         * the app itself goes through [UsageIngestor], which reads incrementally.
+         */
+        fun collectUsageSince(
+            sinceMs: Long,
+            prevStoredPackage: String? = null,
+            isHistorical: Boolean = false,
+            overlapMs: Long = 24 * 60 * 60 * 1000L,
+        ): List<AppUsageEntity> =
+            read(sinceMs - overlapMs, System.currentTimeMillis(), sinceMs, prevStoredPackage, isHistorical).sessions
 
         fun mergeContiguousSessions(sessions: List<AppUsageEntity>): MutableList<AppUsageEntity> {
             val mergedResult = mutableListOf<AppUsageEntity>()
@@ -325,14 +316,16 @@ class UsageDataCollector
                     mergedResult.add(session)
                 } else {
                     val prev = mergedResult.last()
-                    // If same package and gap is less than 5 minutes (300,000 ms)
+                    // Same app again within 5 minutes counts as one session, but only the time
+                    // it was actually in front is added: the gap (screen off, home screen) isn't
+                    // use. Counting the whole span inflated screen time.
                     if (prev.packageName == session.packageName && (session.startTime - prev.endTime) <= 300000L) {
                         val newEnd = maxOf(prev.endTime, session.endTime)
-                        val newDuration = newEnd - prev.startTime
+                        val added = (session.endTime - maxOf(prev.endTime, session.startTime)).coerceAtLeast(0L)
                         mergedResult[mergedResult.lastIndex] =
                             prev.copy(
                                 endTime = newEnd,
-                                durationMs = newDuration,
+                                durationMs = prev.durationMs + added,
                             )
                     } else {
                         mergedResult.add(session)
@@ -340,6 +333,11 @@ class UsageDataCollector
                 }
             }
             return mergedResult
+        }
+
+        companion object {
+            /** A session open longer than this is assumed to have missed its end event. */
+            const val MAX_OPEN_SESSION_MS = 4 * 60 * 60 * 1000L
         }
 
         private fun stableSessionId(
@@ -350,7 +348,7 @@ class UsageDataCollector
                 (hash xor char.code.toLong()) * 0x100000001b3L
             }.let { if (it == 0L) 1L else it }
 
-        suspend fun collectHistoricalData(): List<AppUsageEntity> {
+        fun collectHistoricalData(): List<AppUsageEntity> {
             val cal = Calendar.getInstance()
             cal.add(Calendar.DAY_OF_YEAR, -7)
             return collectUsageSince(cal.timeInMillis, isHistorical = true)

@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <!-- Required for MonitoringService to hold a PARTIAL_WAKE_LOCK so Doze does not suspend the 15-min loop (PERM-3) -->
+    <!-- A few seconds of wake time per scheduled reading (see ReadingAlarm). -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Lets Data health ask directly to stop battery optimisation, which pauses collection on
          aggressive ROMs (sideloaded course app, not a Play Store build). -->
@@ -96,6 +96,10 @@
 
         <receiver
             android:name=".proactive.CheckInReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".collection.ReadingAlarmReceiver"
             android:exported="false" />
 
         <provider

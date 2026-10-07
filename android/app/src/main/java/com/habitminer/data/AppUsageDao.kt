@@ -34,6 +34,29 @@ interface AppUsageDao {
     @Query("SELECT * FROM app_usage ORDER BY startTime DESC")
     fun getAllUsage(): Flow<List<AppUsageEntity>>
 
+    /** Sessions that started at or after [sinceMs], oldest first. Analyses only need a few weeks. */
+    @Query("SELECT * FROM app_usage WHERE startTime >= :sinceMs ORDER BY startTime ASC")
+    suspend fun getUsageSince(sinceMs: Long): List<AppUsageEntity>
+
+    /** Sessions of one app since [sinceMs], oldest first (app detail page). */
+    @Query("SELECT * FROM app_usage WHERE packageName = :packageName AND startTime >= :sinceMs ORDER BY startTime ASC")
+    suspend fun getUsageForPackageSince(
+        packageName: String,
+        sinceMs: Long,
+    ): List<AppUsageEntity>
+
+    /** Changes whenever a session since [sinceMs] is added or grows; cheap with the startTime index. */
+    @Query("SELECT COUNT(*) || ':' || COALESCE(MAX(endTime), 0) || ':' || COALESCE(SUM(durationMs), 0) FROM app_usage WHERE startTime >= :sinceMs")
+    suspend fun getRevisionSince(sinceMs: Long): String
+
+    /** First day with data, for "days of data". */
+    @Query("SELECT MIN(startTime) FROM app_usage")
+    suspend fun getFirstStartTime(): Long?
+
+    /** Days with any app use since [sinceMs] (local dates). */
+    @Query("SELECT COUNT(DISTINCT date(startTime / 1000, 'unixepoch', 'localtime')) FROM app_usage WHERE startTime >= :sinceMs")
+    suspend fun countDaysWithUsageSince(sinceMs: Long): Int
+
     @Query("SELECT * FROM app_usage WHERE startTime >= :startOfDayMs ORDER BY startTime DESC")
     fun getTodayUsage(startOfDayMs: Long): Flow<List<AppUsageEntity>>
 

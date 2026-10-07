@@ -46,6 +46,7 @@ class SensorContextCollector
             batteryLevel: Int,
             isCharging: Boolean,
             wifiPlace: String? = null,
+            includeGyro: Boolean = true,
         ): ContextSnapshotEntity {
             val timestamp = System.currentTimeMillis()
             var sensingMs = 0L
@@ -60,7 +61,7 @@ class SensorContextCollector
                 kotlinx.coroutines.coroutineScope {
                     val lightDeferred = async { collectLightLevel() }
                     val accelDeferred = async { collectMotionState(Sensor.TYPE_ACCELEROMETER) }
-                    val gyroDeferred = async { collectMotionState(Sensor.TYPE_GYROSCOPE) }
+                    val gyroDeferred = async { if (includeGyro) collectMotionState(Sensor.TYPE_GYROSCOPE) else null }
                     val proxDeferred = async { collectProximityState() }
 
                     lightLux = lightDeferred.await() ?: -1f
@@ -147,7 +148,7 @@ class SensorContextCollector
             }
 
         /**
-         * Listens for [MOTION_WARM_UP_MS] + [MOTION_WINDOW_MS] at ~50 Hz and summarises the
+         * Listens for [MOTION_WARM_UP_MS] + [MOTION_WINDOW_MS] at ~25 Hz and summarises the
          * magnitude. The first few hundred ms are dropped because some drivers replay a cached
          * value on registration, and a 2.5 s window spans several steps, so walking with the
          * phone held steady still shows up (the old 12-sample burst lasted under a second).
@@ -171,7 +172,8 @@ class SensorContextCollector
                         accuracy: Int,
                     ) {}
                 }
-            if (!sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME, sensorHandler)) return null
+            // 25 Hz is plenty for walking (about 2 steps a second) at half the cost of 50 Hz.
+            if (!sensorManager.registerListener(listener, sensor, MOTION_SAMPLING_US, sensorHandler)) return null
             try {
                 delay(MOTION_WARM_UP_MS + MOTION_WINDOW_MS)
             } finally {
@@ -264,5 +266,6 @@ class SensorContextCollector
             private const val MOTION_WARM_UP_MS = 300L
             private const val MOTION_WINDOW_MS = 2_500L
             private const val MAX_MOTION_READINGS = 400
+            private const val MOTION_SAMPLING_US = 40_000
         }
     }

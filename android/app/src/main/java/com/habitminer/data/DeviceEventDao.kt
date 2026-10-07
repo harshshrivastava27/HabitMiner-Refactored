@@ -24,6 +24,23 @@ interface DeviceEventDao {
     @Query("SELECT * FROM device_events ORDER BY timestamp ASC")
     suspend fun getAll(): List<DeviceEventEntity>
 
+    /** Times of events of one type since [sinceMs], oldest first. */
+    @Query("SELECT timestamp FROM device_events WHERE eventType = :eventType AND timestamp >= :sinceMs ORDER BY timestamp ASC")
+    suspend fun getTimesSince(
+        eventType: String,
+        sinceMs: Long,
+    ): List<Long>
+
+    /** Events of several types since [sinceMs], oldest first. */
+    @Query("SELECT * FROM device_events WHERE eventType IN (:eventTypes) AND timestamp >= :sinceMs ORDER BY timestamp ASC")
+    suspend fun getTypesSince(
+        eventTypes: List<String>,
+        sinceMs: Long,
+    ): List<DeviceEventEntity>
+
+    @Query("SELECT COUNT(*) || ':' || COALESCE(MAX(timestamp), 0) FROM device_events WHERE timestamp >= :sinceMs")
+    suspend fun getRevisionSince(sinceMs: Long): String
+
     @Insert
     suspend fun insertAll(events: List<DeviceEventEntity>)
 

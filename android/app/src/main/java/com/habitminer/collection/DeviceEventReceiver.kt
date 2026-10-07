@@ -61,7 +61,7 @@ class DeviceEventReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val EVENT_UNLOCK = "UNLOCK"
-        const val EVENT_NOTIFICATION = "NOTIFICATION"
+        const val EVENT_UNLOCK = DeviceEvents.UNLOCK
+        const val EVENT_NOTIFICATION = DeviceEvents.NOTIFICATION
     }
 }
