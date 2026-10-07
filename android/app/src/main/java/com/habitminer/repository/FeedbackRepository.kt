@@ -93,6 +93,27 @@ class FeedbackRepository
             )
         }
 
+        /** Replaces the copied Health Connect sleep with a fresh read. */
+        suspend fun replaceHealthSleep(result: com.habitminer.analytics.ExternalSleepMapper.Result) {
+            val now = System.currentTimeMillis()
+            fun json(
+                nap: Boolean,
+                awake: List<Pair<Long, Long>>,
+            ) = """{"nap":$nap,"awake":[${awake.joinToString(",") { "[${it.first},${it.second}]" }}]}"""
+            val rows =
+                result.nights.map { n ->
+                    UserLabelEntity(timestamp = now, kind = UserLabelEntity.KIND_SLEEP_HEALTH, value = "${n.start}|${n.end}", refKey = "hc|${n.start}", contextJson = json(false, n.awake.orEmpty()))
+                } +
+                    result.naps.map { (a, b) ->
+                        UserLabelEntity(timestamp = now, kind = UserLabelEntity.KIND_SLEEP_HEALTH, value = "$a|$b", refKey = "hc|$a", contextJson = json(true, emptyList()))
+                    }
+            labelDao.deleteByKind(UserLabelEntity.KIND_SLEEP_HEALTH)
+            if (rows.isNotEmpty()) labelDao.insertAll(rows)
+        }
+
+        /** Removes the copied Health Connect sleep (when you turn it off). */
+        suspend fun clearHealthSleep() = labelDao.deleteByKind(UserLabelEntity.KIND_SLEEP_HEALTH)
+
         /** Goes back to the estimate for that night. */
         suspend fun clearSleepFix(wakeDate: java.time.LocalDate) =
             labelDao.deleteByRef(UserLabelEntity.KIND_SLEEP_FIX, com.habitminer.engine.LabelMappers.sleepFixKey(wakeDate))

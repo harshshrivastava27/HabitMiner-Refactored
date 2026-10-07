@@ -62,6 +62,12 @@ data class FeatureSettings(
     val deviationAlerts: Boolean = true,
     val places: Boolean = false,
     val placesPermission: Boolean = false,
+    /** Sleep from Health Connect (opt-in). */
+    val healthConnect: Boolean = false,
+    /** Whether Health Connect is on this phone: "available", "needs_update" or "unavailable". */
+    val healthConnectStatus: String = "unavailable",
+    /** Busy times from the calendar (opt-in). */
+    val calendar: Boolean = false,
 )
 
 @Immutable
@@ -150,6 +156,8 @@ class HabitViewModel
         private val stepCounterMonitor: com.habitminer.collection.StepCounterMonitor,
         private val usageIngestor: com.habitminer.collection.UsageIngestor,
         private val analysisRepository: AnalysisRepository,
+        private val healthConnectSleep: com.habitminer.sources.HealthConnectSleep,
+        private val calendarBusy: com.habitminer.sources.CalendarBusy,
     ) : AndroidViewModel(application), HabitActions {
         private val _uiState = MutableStateFlow(HabitUiState(selectedHistoryDate = getStartOfDay()))
         val uiState: StateFlow<HabitUiState> = _uiState.asStateFlow()
@@ -246,6 +254,7 @@ class HabitViewModel
                 initialCollectionStarted = true
                 synchronizeUsageAndModel()
             }
+            viewModelScope.launch(Dispatchers.IO) { syncHealthConnect(force = false) }
         }
 
         override fun loadHistoricalData() {
@@ -502,6 +511,9 @@ class HabitViewModel
                 deviationAlerts = prefs.getBoolean(PrefsKeys.DEVIATION_ALERTS_ENABLED, true),
                 places = wifiPlaceProvider.isEnabled() && wifiPlaceProvider.hasPermission(),
                 placesPermission = wifiPlaceProvider.hasPermission(),
+                healthConnect = healthConnectSleep.enabled,
+                healthConnectStatus = healthConnectSleep.status().name.lowercase(),
+                calendar = calendarBusy.enabled && calendarBusy.hasPermission(),
             )
         }
 
@@ -523,6 +535,51 @@ class HabitViewModel
         fun setDeviationAlertsEnabled(enabled: Boolean) = setFlag(PrefsKeys.DEVIATION_ALERTS_ENABLED, enabled)
 
         /** Call after the location permission result. Restarts the service so it gains the location type. */
+        /** The Health Connect permission to ask for. */
+        val healthConnectPermission: String get() = healthConnectSleep.permission
+
+        /** After the Health Connect permission screen: on when sleep access was granted. */
+        fun setHealthConnectEnabled(granted: Boolean) {
+            healthConnectSleep.enabled = granted
+            _uiState.update { it.copy(features = readFeatureSettings()) }
+            viewModelScope.launch(Dispatchers.IO) {
+                if (granted) {
+                    syncHealthConnect(force = true)
+                } else {
+                    feedbackRepository.clearHealthSleep()
+                    analysisRepository.invalidate()
+                    insightsRefresh.tryEmit(Unit)
+                }
+            }
+        }
+
+        /**
+         * Copies the last month of sleep from Health Connect. Health Connect only allows reads
+         * while the app is open, so this runs when you come back to the app, at most every 30 minutes.
+         */
+        private suspend fun syncHealthConnect(force: Boolean) {
+            if (!healthConnectSleep.enabled) return
+            val prefs = getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            if (!force && now - prefs.getLong(PrefsKeys.HEALTH_CONNECT_SYNCED_AT, 0L) < 30 * 60_000L) return
+            if (!healthConnectSleep.hasPermission()) return
+            runCatching {
+                val sessions = healthConnectSleep.read(now - 32L * 24 * 60 * 60 * 1000, now)
+                feedbackRepository.replaceHealthSleep(com.habitminer.analytics.ExternalSleepMapper.map(sessions, java.time.ZoneId.systemDefault()))
+                prefs.edit().putLong(PrefsKeys.HEALTH_CONNECT_SYNCED_AT, now).apply()
+                analysisRepository.invalidate()
+                insightsRefresh.tryEmit(Unit)
+            }.onFailure { android.util.Log.w("HabitMiner", "Health Connect read failed", it) }
+        }
+
+        /** After the calendar permission prompt. */
+        fun setCalendarEnabled(granted: Boolean) {
+            calendarBusy.enabled = granted
+            _uiState.update { it.copy(features = readFeatureSettings()) }
+            analysisRepository.invalidate()
+            insightsRefresh.tryEmit(Unit)
+        }
+
         fun setPlacesEnabled(enabled: Boolean) {
             wifiPlaceProvider.setEnabled(enabled && wifiPlaceProvider.hasPermission())
             _uiState.update { it.copy(features = readFeatureSettings()) }

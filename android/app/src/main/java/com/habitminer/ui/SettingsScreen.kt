@@ -156,6 +156,8 @@ fun SettingsScreen(
 
         item(key = "places") { PlacesSection(state, viewModel) }
 
+        item(key = "sources") { SourcesSection(state, viewModel) }
+
         item(key = "data") {
             SectionHeader(
                 "Your data",
@@ -201,6 +203,13 @@ fun SettingsScreen(
             val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "" }
             RowGroup {
                 row { ListRow("HabitMiner Extended", supporting = "Version $version") }
+                row {
+                    ListRow(
+                        "Privacy",
+                        supporting = "What's recorded, what never is, and where it stays",
+                        onClick = { context.startActivity(android.content.Intent(context, PrivacyActivity::class.java)) },
+                    )
+                }
                 row { ListRow("Typeface", supporting = "Mona Sans by GitHub, SIL Open Font License 1.1") }
             }
         }
@@ -237,6 +246,90 @@ fun ToggleRow(
         trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
         onClick = if (enabled) ({ onChange(!checked) }) else null,
     )
+}
+
+/** Opt-in sources that sharpen sleep and timing: Health Connect sleep and calendar busy times. */
+@Composable
+fun SourcesSection(
+    state: HabitUiState,
+    viewModel: HabitViewModel,
+) {
+    val context = LocalContext.current
+    var healthDenied by remember { mutableStateOf(false) }
+    var calendarDenied by remember { mutableStateOf(false) }
+    val healthLauncher =
+        rememberLauncherForActivityResult(androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()) { granted ->
+            val ok = viewModel.healthConnectPermission in granted
+            healthDenied = !ok
+            viewModel.setHealthConnectEnabled(ok)
+        }
+    val calendarLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+            calendarDenied = !ok
+            viewModel.setCalendarEnabled(ok)
+        }
+    SectionHeader(
+        "Other sources",
+        info =
+            "Both are off by default and read-only. Nothing is copied off the phone.\n\n" +
+                "Health Connect: if a watch or sleep app records your sleep, those nights replace HabitMiner's guesses and teach it " +
+                "how your nights usually differ from what the phone sees.\n\n" +
+                "Calendar: only when you're busy, never titles, places or people. A still phone during a class or meeting isn't " +
+                "taken for a nap, and questions wait until you're free.",
+    )
+    val status = state.features.healthConnectStatus
+    RowGroup {
+        row {
+            ToggleRow(
+                "Sleep from Health Connect",
+                when {
+                    status == "unavailable" -> "Health Connect isn't on this phone."
+                    status == "needs_update" -> "Update Health Connect from the Play Store first."
+                    healthDenied -> "Sleep access wasn't allowed, so this stays off."
+                    else -> "Use nights recorded by a watch or sleep app."
+                },
+                state.features.healthConnect,
+                enabled = status == "available",
+                onChange = { enable ->
+                    if (enable) {
+                        runCatching { healthLauncher.launch(setOf(viewModel.healthConnectPermission)) }
+                            .onFailure { healthDenied = true }
+                    } else {
+                        viewModel.setHealthConnectEnabled(false)
+                    }
+                },
+            )
+        }
+        row {
+            ToggleRow(
+                "Busy times from your calendar",
+                if (calendarDenied) "Calendar access wasn't allowed, so this stays off." else "Only busy or free, never what the event is.",
+                state.features.calendar,
+                onChange = { enable ->
+                    if (enable) {
+                        calendarLauncher.launch(android.Manifest.permission.READ_CALENDAR)
+                    } else {
+                        viewModel.setCalendarEnabled(false)
+                    }
+                },
+            )
+        }
+    }
+    if (status == "needs_update") {
+        TextButton(
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("market://details?id=com.google.android.apps.healthdata"),
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            },
+            modifier = Modifier.padding(horizontal = ScreenPadding - 12.dp),
+        ) { Text("Update Health Connect") }
+    }
 }
 
 /** Opt-in Wi-Fi places: permission request, explanation and renaming. */

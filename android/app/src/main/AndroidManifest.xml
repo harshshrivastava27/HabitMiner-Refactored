@@ -21,6 +21,14 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Opt-in: busy or free from the calendar, never event details. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Opt-in, read-only: sleep sessions from Health Connect. -->
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
 
     <application
         android:name=".HabitMinerApp"
@@ -102,6 +110,28 @@
         <receiver
             android:name=".collection.ReadingAlarmReceiver"
             android:exported="false" />
+
+        <!-- Privacy page; Health Connect opens it to explain why sleep access is asked for. -->
+        <activity
+            android:name=".ui.PrivacyActivity"
+            android:exported="true"
+            android:label="Privacy"
+            android:theme="@style/Theme.HabitMiner">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <!-- Android 14+: the same page from the system's Health Connect permission screen. -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:targetActivity=".ui.PrivacyActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <provider
             android:name="androidx.core.content.FileProvider"

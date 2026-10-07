@@ -55,12 +55,16 @@ class RoutineAnalysis
             now: Long,
             zone: ZoneId,
             signals: NightSignals = NightSignals(),
+            busy: List<Pair<Long, Long>> = emptyList(),
         ): Result {
             val today = TimeUtil.dateOf(now, zone)
             val periods = LabelMappers.periods(labels)
             val detected = SleepDetector.detectRange(sessions, unlocks, samples, today, 30, now, zone, signals)
-            // Nights you corrected use your times and teach the estimate for the others.
-            val fixes = LabelMappers.sleepFixes(labels)
+            // Nights you corrected, and nights from Health Connect, are known: they replace the
+            // estimate for that night and teach it for the others. Your own fixes win.
+            val yours = LabelMappers.sleepFixes(labels)
+            val fixed = yours.map { it.wakeDate }.toSet()
+            val fixes = yours + LabelMappers.healthNights(labels, zone).filter { it.wakeDate !in fixed }
             val nights = SleepCorrections.apply(detected, fixes, sessions, unlocks, samples, zone, signals)
             val report = DeviationFinder.find(sessions, unlocks, nights, today, now, zone, periods)
 
@@ -80,18 +84,19 @@ class RoutineAnalysis
             val homePlace =
                 places.firstOrNull { it.label.equals("Home", ignoreCase = true) }?.placeHash
                     ?: PlaceInference.suggestNames(samples, zone).entries.firstOrNull { it.value == "Home" }?.key
+            val knownNaps = LabelMappers.healthNaps(labels)
             val naps =
                 (1 downTo 0).flatMap { back ->
                     val day = today.minusDays(back.toLong())
-                    NapDetector.candidates(sessions, unlocks, samples, day, now, zone, nights.firstOrNull { it.wakeDate == day }, homePlace)
-                }
+                    NapDetector.candidates(sessions, unlocks, samples, day, now, zone, nights.firstOrNull { it.wakeDate == day }, homePlace, busy)
+                }.filterNot { c -> knownNaps.any { (a, b) -> a < c.end && b > c.start } }
             return Result(
                 nights = nights,
                 deviations = report,
                 naps = naps,
                 periods = periods,
                 answers = LabelMappers.answers(labels),
-                confirmedNaps = LabelMappers.confirmedNaps(labels),
+                confirmedNaps = (LabelMappers.confirmedNaps(labels) + LabelMappers.healthNaps(labels)).distinct(),
                 sleepShift = SleepCorrections.shift(detected, fixes),
             )
         }

@@ -45,6 +45,9 @@ interface LabelDao {
 
     @Query("DELETE FROM user_labels")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM user_labels WHERE kind = :kind")
+    suspend fun deleteByKind(kind: String)
 }
 
 @Dao

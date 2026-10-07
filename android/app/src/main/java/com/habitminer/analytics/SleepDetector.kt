@@ -23,6 +23,9 @@ enum class SleepSource {
 
     /** Times you set yourself. */
     YOU,
+
+    /** A sleep session from Health Connect (a watch or sleep app). */
+    HEALTH_CONNECT,
 }
 
 /**
@@ -109,12 +112,17 @@ data class NightSignals(
     }
 }
 
-/** Your own times for the night that ended on [wakeDate]; [notSleep] means "that wasn't sleep". */
+/**
+ * Known times for the night that ended on [wakeDate]: yours, or a Health Connect session.
+ * [notSleep] means "that wasn't sleep". [awake] are known awake stretches inside it.
+ */
 data class SleepFix(
     val wakeDate: LocalDate,
     val start: Long,
     val end: Long,
     val notSleep: Boolean = false,
+    val source: SleepSource = SleepSource.YOU,
+    val awake: List<Pair<Long, Long>>? = null,
 )
 
 /** One night's estimated sleep, keyed by the date the person woke up. */
@@ -345,7 +353,7 @@ object SleepDetector {
         if (chargingShare >= 0.5f || darkEvidence || stillEvidence || quiet) score++
         val confidence =
             when {
-                source == SleepSource.YOU -> Confidence.HIGH
+                source == SleepSource.YOU || source == SleepSource.HEALTH_CONNECT -> Confidence.HIGH
                 score >= 3 -> Confidence.HIGH
                 score >= 2 -> Confidence.MEDIUM
                 else -> Confidence.LOW
@@ -412,9 +420,16 @@ object SleepDetector {
         zone: ZoneId,
         signals: NightSignals = NightSignals(),
         source: SleepSource = SleepSource.YOU,
+        awake: List<Pair<Long, Long>>? = null,
     ): SleepEstimate {
-        val inside = Activity.clusters(sessions, unlocks, start, end).filter { it.start > start && it.end < end }
-        val wakes = inside.map { BriefWake(it.start, maxOf(it.end, it.start + TimeUtil.MINUTE / 2), it.usedClock) }
+        val wakes =
+            if (awake != null) {
+                // Known awake stretches (from a watch) beat guessing from the phone.
+                awake.filter { (a, b) -> b > a && a >= start && b <= end }.sortedBy { it.first }.map { (a, b) -> BriefWake(a, b, alarm = false) }
+            } else {
+                Activity.clusters(sessions, unlocks, start, end).filter { it.start > start && it.end < end }
+                    .map { BriefWake(it.start, maxOf(it.end, it.start + TimeUtil.MINUTE / 2), it.usedClock) }
+            }
         return build(sessions, samples, wakeDate, start, end, wakes, signals, zone, source)
     }
 
@@ -484,6 +499,8 @@ object NapDetector {
         zone: ZoneId,
         night: SleepEstimate?,
         homePlace: String? = null,
+        /** Busy times from your calendar (opt-in): a still phone in a meeting or class isn't a nap. */
+        busy: List<Pair<Long, Long>> = emptyList(),
     ): List<NapCandidate> {
         val from = TimeUtil.at(day, 9, 0, zone)
         val to = minOf(TimeUtil.at(day, 21, 0, zone), now)
@@ -512,7 +529,9 @@ object NapDetector {
             val asleep = end - start - wakes
             val endMinute = TimeUtil.minuteOfDay(end, zone)
             val overlapsNight = night != null && start < night.wakeTime && end > night.sleepStart
-            if (asleep >= MIN_NAP_MS && end - start <= MAX_NAP_MS && endMinute >= 10 * 60 + 30 && !overlapsNight) {
+            val busyMs = busy.sumOf { (a, b) -> (minOf(b, end) - maxOf(a, start)).coerceAtLeast(0L) }
+            val inMeeting = busyMs * 2 >= end - start
+            if (asleep >= MIN_NAP_MS && end - start <= MAX_NAP_MS && endMinute >= 10 * 60 + 30 && !overlapsNight && !inMeeting) {
                 candidate(samples, start, end, homePlace)?.let(out::add)
             }
             i = last

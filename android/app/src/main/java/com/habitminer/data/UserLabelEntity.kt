@@ -47,5 +47,12 @@ data class UserLabelEntity(
          */
         const val KIND_SLEEP_FIX = "SLEEP_FIX"
         const val SLEEP_NONE = "none"
+
+        /**
+         * A sleep session copied from Health Connect (opt-in, Extended). value "<start>|<end>",
+         * refKey "hc|<start>", contextJson {"nap":true|false,"awake":[[a,b],…]}. Replaced on
+         * every sync; your own fixes win over them.
+         */
+        const val KIND_SLEEP_HEALTH = "SLEEP_HEALTH_CONNECT"
     }
 }

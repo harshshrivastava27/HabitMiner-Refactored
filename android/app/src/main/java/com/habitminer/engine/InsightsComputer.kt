@@ -106,6 +106,7 @@ class InsightsComputer
         private val appIdentityResolver: AppIdentityResolver,
         private val contextRepository: ContextRepository,
         private val routineAnalysis: RoutineAnalysis,
+        private val calendarBusy: com.habitminer.sources.CalendarBusy,
     ) {
         suspend fun compute(
             allUsage: List<AppUsageEntity>,
@@ -162,7 +163,9 @@ class InsightsComputer
                         },
                     now = now,
                 )
-            val routine = routineAnalysis.run(sessions, samples, unlocks, labels, places, now, zone, signals)
+            // Busy times from the calendar (opt-in) for the two days naps are looked for in.
+            val busy = calendarBusy.busy(TimeUtil.startOfDay(today.minusDays(1), zone), now)
+            val routine = routineAnalysis.run(sessions, samples, unlocks, labels, places, now, zone, signals, busy)
             val nights = routine.nights.takeLast(7)
             val excluded =
                 routine.periods.flatMap { p -> generateSequence(p.from) { it.plusDays(1) }.takeWhile { !it.isAfter(p.to) }.toList() }.toSet()

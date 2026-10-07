@@ -243,6 +243,30 @@ class SleepCorrectionsTest {
     }
 }
 
+class ExternalSleepMapperTest {
+    @Test
+    fun `joins a night the watch split in two and keeps naps apart`() {
+        val sessions =
+            listOf(
+                ExternalSleep(at(d(2), 23, 10), at(d(3), 3, 0)),
+                ExternalSleep(at(d(3), 3, 40), at(d(3), 7, 15), awake = listOf(at(d(3), 5, 0) to at(d(3), 5, 10))),
+                ExternalSleep(at(d(3), 14, 0), at(d(3), 14, 50)),
+            )
+        val result = ExternalSleepMapper.map(sessions, ZONE)
+        assertEquals(1, result.nights.size)
+        val night = result.nights[0]
+        assertEquals(d(3), night.wakeDate)
+        assertEquals(at(d(2), 23, 10), night.start)
+        assertEquals(at(d(3), 7, 15), night.end)
+        assertEquals(SleepSource.HEALTH_CONNECT, night.source)
+        // The gap between the two halves counts as awake, plus the watch's own awake stage.
+        assertEquals(2, night.awake!!.size)
+        assertEquals(listOf(at(d(3), 14, 0) to at(d(3), 14, 50)), result.naps)
+        val est = SleepDetector.fromTimes(emptyList(), emptyList(), emptyList(), night.wakeDate, night.start, night.end, ZONE, source = night.source, awake = night.awake)
+        assertEquals((8 * 60 + 5 - 40 - 10) * MIN, est.durationMs)
+    }
+}
+
 class PickupAnalyzerTest {
     @Test
     fun `classifies pickups after notifications`() {

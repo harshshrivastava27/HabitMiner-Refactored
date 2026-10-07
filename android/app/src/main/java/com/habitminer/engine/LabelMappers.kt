@@ -54,6 +54,37 @@ object LabelMappers {
 
     fun sleepFixKey(wakeDate: LocalDate): String = "sleep|$wakeDate"
 
+    private val pairRe = Regex("\\[(\\d+),(\\d+)]")
+
+    /** Nights copied from Health Connect, one per wake date. */
+    fun healthNights(
+        labels: List<UserLabelEntity>,
+        zone: java.time.ZoneId,
+    ): List<com.habitminer.analytics.SleepFix> =
+        healthRows(labels, nap = false).map { (start, end, json) ->
+            val awake = pairRe.findAll(json).map { it.groupValues[1].toLong() to it.groupValues[2].toLong() }.toList()
+            com.habitminer.analytics.SleepFix(
+                com.habitminer.analytics.TimeUtil.dateOf(end, zone), start, end,
+                source = com.habitminer.analytics.SleepSource.HEALTH_CONNECT, awake = awake,
+            )
+        }.groupBy { it.wakeDate }.values.map { list -> list.maxBy { it.end - it.start } }
+
+    /** Naps copied from Health Connect, as (start, end). */
+    fun healthNaps(labels: List<UserLabelEntity>): List<Pair<Long, Long>> = healthRows(labels, nap = true).map { (a, b, _) -> a to b }
+
+    private fun healthRows(
+        labels: List<UserLabelEntity>,
+        nap: Boolean,
+    ): List<Triple<Long, Long, String>> =
+        labels.filter { it.kind == UserLabelEntity.KIND_SLEEP_HEALTH }.mapNotNull { l ->
+            val json = l.contextJson.orEmpty()
+            if (json.contains("\"nap\":true") != nap) return@mapNotNull null
+            val parts = l.value.split('|')
+            val a = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+            val b = parts.getOrNull(1)?.toLongOrNull() ?: return@mapNotNull null
+            if (b > a) Triple(a, b, json) else null
+        }
+
     /** Nap and period answers by key ("nap|…" → asleep/awake, "period|…" → exams/…). */
     fun answers(labels: List<UserLabelEntity>): Map<String, String> =
         labels.filter { (it.kind == UserLabelEntity.KIND_NAP || it.kind == UserLabelEntity.KIND_PERIOD) && it.refKey != null }

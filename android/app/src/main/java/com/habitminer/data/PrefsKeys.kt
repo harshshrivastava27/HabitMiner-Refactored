@@ -31,6 +31,13 @@ object PrefsKeys {
     /** The headphones and speakers connected when last checked, as stored details. */
     const val AUDIO_DEVICES = "audio_devices"
 
+    /** Sleep sessions from Health Connect (opt-in). */
+    const val HEALTH_CONNECT_ENABLED = "health_connect_enabled"
+    const val HEALTH_CONNECT_SYNCED_AT = "health_connect_synced_at"
+
+    /** Busy times from the calendar (opt-in). */
+    const val CALENDAR_ENABLED = "calendar_enabled"
+
     /** Prefix for the last stored detail of a state event type (DND, next alarm, time zone). */
     const val LAST_EVENT_PREFIX = "last_event_"
 }
