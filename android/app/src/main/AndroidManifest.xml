@@ -34,11 +34,26 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
+            android:label="@string/launcher_label"
             android:launchMode="singleTop"
             android:theme="@style/Theme.HabitMiner">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Brings history across from the original HabitMiner: its "Share exported data"
+                 sheet lists this app, and so does opening an export ZIP from a file manager. -->
+            <intent-filter android:label="@string/import_label">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+            </intent-filter>
+            <intent-filter android:label="@string/import_label">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/zip" />
             </intent-filter>
         </activity>
 

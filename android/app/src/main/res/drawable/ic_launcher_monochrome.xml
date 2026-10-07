@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A day dial: three quarters of a ring (the hours you've used) and a dot where the day is now. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -7,16 +6,16 @@
     android:viewportHeight="108">
     <path
         android:pathData="M54,30 A24,24 0 1,1 30,54"
-        android:strokeColor="#F3EEE4"
+        android:strokeColor="#FFFFFFFF"
         android:strokeWidth="8"
         android:strokeLineCap="round"
         android:fillColor="#00000000" />
     <path
-        android:fillColor="#F2A541"
+        android:fillColor="#FFFFFFFF"
         android:pathData="M37.03,37.03 m-5.5,0 a5.5,5.5 0 1,0 11,0 a5.5,5.5 0 1,0 -11,0" />
     <path
         android:pathData="M54,54 L45,45"
-        android:strokeColor="#F3EEE4"
+        android:strokeColor="#FFFFFFFF"
         android:strokeWidth="5.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000" />

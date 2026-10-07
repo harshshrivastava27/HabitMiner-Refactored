@@ -36,6 +36,8 @@ import com.habitminer.engine.HabitViewModel
 import com.habitminer.ui.theme.HabitMinerTheme
 import dagger.hilt.android.AndroidEntryPoint
 
+private const val OPEN_IMPORT = "import"
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val viewModel: HabitViewModel by viewModels()
@@ -46,7 +48,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewModel.checkPermissions()
-        handleIntent(intent)
+        handleIntent(intent, fresh = savedInstanceState == null)
 
         setContent {
             HabitMinerTheme {
@@ -76,6 +78,7 @@ class MainActivity : ComponentActivity() {
                             insightsTab = 1
                             go(Screen.Insights.route)
                         }
+                        OPEN_IMPORT -> go(Screen.Settings.route)
                     }
                     if (open != null) pendingOpen.value = null
                 }
@@ -250,10 +253,29 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIntent(intent)
+        handleIntent(intent, fresh = true)
     }
 
-    private fun handleIntent(intent: Intent?) {
+    private fun handleIntent(
+        intent: Intent?,
+        fresh: Boolean,
+    ) {
+        // An export ZIP shared from the original HabitMiner (or opened from a file manager).
+        // Only on a fresh delivery, so rotating the screen doesn't import it twice.
+        val shared =
+            when (intent?.action) {
+                Intent.ACTION_SEND ->
+                    androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java)
+                Intent.ACTION_VIEW -> intent.data
+                else -> null
+            }
+        if (shared != null) {
+            if (fresh) {
+                viewModel.importData(shared)
+                pendingOpen.value = OPEN_IMPORT
+            }
+            return
+        }
         val open = intent?.getStringExtra(com.habitminer.proactive.Notifier.EXTRA_OPEN) ?: return
         if (open == com.habitminer.proactive.Notifier.OPEN_CHECKIN) {
             val promptedAt = intent.getLongExtra(com.habitminer.proactive.Notifier.EXTRA_PROMPTED_AT, -1L).takeIf { it > 0 }

@@ -35,11 +35,13 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK and run unit tests
+      # The release APK (R8-shrunk, non-debuggable) is the one to install; the debug build
+      # is kept for the unit and screenshot tests.
+      - name: Build APKs and run unit tests
         run: |
           chmod +x gradlew
           set -o pipefail
-          ./gradlew --no-daemon --stacktrace assembleDebug testDebugUnitTest 2>&1 | tee build.log
+          ./gradlew --no-daemon --stacktrace assembleDebug assembleRelease testDebugUnitTest 2>&1 | tee build.log
 
       # Turn compiler and test failures into annotations so they show up on the
       # commit's check run without needing to open the raw logs.
@@ -132,6 +134,7 @@ jobs:
           mkdir -p /tmp/out
           cp android/app/build/screenshots/*.png /tmp/out/
           cp android/app/build/outputs/apk/debug/*.apk /tmp/out/habitminer-debug.apk 2>/dev/null || true
+          cp android/app/build/outputs/apk/release/*.apk /tmp/out/HabitMinerExtended.apk 2>/dev/null || true
           git config user.name "habitminer-ci"
           git config user.email "habitminer-ci@users.noreply.github.com"
           git checkout -q --orphan ci-outputs-tmp
@@ -140,12 +143,16 @@ jobs:
           echo "Build outputs for ${GITHUB_SHA} (${GITHUB_REF_NAME})" > OUTPUTS.md
           git add -f ./*.png ./*.apk OUTPUTS.md 2>/dev/null || git add -f ./*.png OUTPUTS.md
           git commit -q -m "Outputs for ${GITHUB_SHA}"
-          git push -q -f origin HEAD:refs/heads/ci-outputs
+          # One outputs branch per source branch, so builds of different branches don't
+          # overwrite each other's APK.
+          git push -q -f origin "HEAD:refs/heads/ci-out-${GITHUB_REF_NAME//\//-}"
 
-      - name: Upload debug APK
+      - name: Upload APKs
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: habitminer-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: habitminer-apks
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/debug/*.apk
           retention-days: 14
