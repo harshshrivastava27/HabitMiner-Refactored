@@ -127,6 +127,9 @@ class ImportManager
                             wifiPlace = r["wifiPlace"]?.ifEmpty { null },
                             sensingMs = r["sensingMs"]?.toLongOrNull() ?: 0L,
                             recentSteps = r["recentSteps"]?.toIntOrNull() ?: -1,
+                            batteryTempC = r["batteryTempC"]?.toFloatOrNull(),
+                            powerSave = r["powerSave"]?.toBooleanStrictOrNull(),
+                            thermalStatus = r["thermalStatus"]?.toIntOrNull(),
                         )
                     }.getOrNull()
                 }

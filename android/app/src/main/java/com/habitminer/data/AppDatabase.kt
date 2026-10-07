@@ -207,11 +207,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
 
         /** v9 (Extended): index for MAX(endTime), which runs on every collection. */
-        /** v10 (Extended): a detail per device event (alarm time, Do Not Disturb mode, why a notification went away…). */
+        /**
+         * v10 (Extended): a detail per device event (alarm time, Do Not Disturb mode, why a
+         * notification went away…), and battery temperature, battery saver and thermal status per reading.
+         */
         internal val MIGRATION_9_10 =
             object : Migration(9, 10) {
                 override fun migrate(database: SupportSQLiteDatabase) {
                     database.execSQL("ALTER TABLE device_events ADD COLUMN detail TEXT")
+                    database.execSQL("ALTER TABLE context_snapshots ADD COLUMN batteryTempC REAL")
+                    database.execSQL("ALTER TABLE context_snapshots ADD COLUMN powerSave INTEGER")
+                    database.execSQL("ALTER TABLE context_snapshots ADD COLUMN thermalStatus INTEGER")
                 }
             }
 

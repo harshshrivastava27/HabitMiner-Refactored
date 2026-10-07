@@ -38,4 +38,11 @@ data class ContextSnapshotEntity(
     val sensingMs: Long = 0L,
     /** Steps in the two minutes before this snapshot (-1 when the step counter wasn't available). */
     val recentSteps: Int = -1,
+    // ---- v10 (Extended) ----
+    /** Battery temperature in °C. */
+    val batteryTempC: Float? = null,
+    /** Battery saver on. */
+    val powerSave: Boolean? = null,
+    /** Thermal status, 0 (none) to 6 (shutdown); null before Android 10. */
+    val thermalStatus: Int? = null,
 )

@@ -464,6 +464,8 @@ class PolicyAndFormatTest {
         assertEquals(SensingMode.IDLE, SensingPolicy.choose(false, null, false, 80))
         assertEquals(SensingMode.NORMAL, SensingPolicy.choose(false, null, true, 80))
         assertEquals(SensingMode.LOW_BATTERY, SensingPolicy.choose(true, true, false, 10))
+        assertEquals(SensingMode.LOW_BATTERY, SensingPolicy.choose(true, false, false, 80, powerSave = true))
+        assertEquals(SensingMode.NORMAL, SensingPolicy.choose(true, false, true, 80, powerSave = true))
     }
 
     @Test
@@ -760,6 +762,51 @@ class NextAppModelTest {
         val guess = NextAppModel.predict(sessions.filter { it.start < after - 30_000 || it.appName == "A" }, after, ZONE)
         assertEquals("B", guess.first().appName)
         assertTrue(guess.none { it.appName == "Photo picker" })
+    }
+
+    @Test
+    fun `headphones change what comes next`() {
+        // Every day at 10:00 and 18:00: A then B normally; A then Music with headphones in the evening.
+        val sessions = mutableListOf<UsageSession>()
+        val spans = mutableListOf<ContextSpan>()
+        for (day in 1..8) {
+            for (k in 0 until 4) {
+                sessions += s("A", d(day), 10, k * 10, 2)
+                sessions += s("B", d(day), 10, k * 10 + 3, 2)
+                sessions += s("A", d(day), 18, k * 10, 2)
+                sessions += s("Music", d(day), 18, k * 10 + 3, 2)
+            }
+            spans += ContextSpan(SpanIndex.HEADPHONES, at(d(day), 17, 55), at(d(day), 18, 45))
+        }
+        // Today: A at 13:00, once without and once with headphones on.
+        val today = d(9)
+        val withA = sessions + s("A", today, 13, 0, 2)
+        val now = at(today, 13, 2) + 30_000
+        val plain = NextAppModel.predict(withA, now, ZONE, situations = spans)
+        val withPhones = NextAppModel.predict(withA, now, ZONE, situations = spans + ContextSpan(SpanIndex.HEADPHONES, at(today, 12, 50), now + MIN))
+        // At 13:00 nothing else separates B and Music; headphones tip it clearly to Music.
+        val musicPlain = plain.first { it.appName == "Music" }.share
+        val musicPhones = withPhones.first { it.appName == "Music" }.share
+        assertEquals("Music", withPhones.first().appName)
+        assertTrue(musicPhones > musicPlain + 0.05f)
+    }
+
+    @Test
+    fun `situation spans come from connect and disconnect events`() {
+        val spans =
+            SpanIndex.spans(
+                audio = listOf(Triple(100L, "a", true), Triple(200L, "b", true), Triple(300L, "a", false), Triple(400L, "b", false)),
+                power = listOf(50L to true, 500L to false, 900L to true),
+                activity = listOf(10L to "still", 600L to "vehicle", 700L to "walking"),
+                now = 1000L,
+            )
+        assertEquals(
+            listOf(ContextSpan("headphones", 100, 400), ContextSpan("charging", 50, 500), ContextSpan("charging", 900, 1000), ContextSpan("vehicle", 600, 700)),
+            spans,
+        )
+        val index = SpanIndex(spans)
+        assertEquals(setOf("headphones", "charging"), index.tagsAt(150))
+        assertEquals(setOf("vehicle"), index.tagsAt(650))
     }
 }
 

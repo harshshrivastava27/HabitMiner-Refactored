@@ -60,6 +60,9 @@ object DeviceEvents {
     /** The phone's time zone changed (travel). detail: `zone=<IANA id>`. */
     const val TIMEZONE = "TIMEZONE"
 
+    /** Started being still, walking, running, cycling or in a vehicle. detail: `type=still|walking|running|cycling|vehicle`. */
+    const val ACTIVITY = "ACTIVITY"
+
     /** An app was installed or removed; packageName is that app. */
     const val APP_INSTALLED = "APP_INSTALLED"
     const val APP_REMOVED = "APP_REMOVED"
@@ -68,7 +71,7 @@ object DeviceEvents {
     val RECORDED_BY_APP =
         setOf(
             UNLOCK, NOTIFICATION, NOTIFICATION_REMOVED, DND, NEXT_ALARM, POWER_CONNECTED, POWER_DISCONNECTED,
-            AUDIO_CONNECTED, AUDIO_DISCONNECTED, TIMEZONE, APP_INSTALLED, APP_REMOVED,
+            AUDIO_CONNECTED, AUDIO_DISCONNECTED, TIMEZONE, APP_INSTALLED, APP_REMOVED, ACTIVITY,
         )
 
     /** Reads `key` from a `key=value;key=value` detail. */

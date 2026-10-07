@@ -34,13 +34,97 @@ data class NotificationEvent(
     val packageName: String,
 )
 
+/** A stretch with a situation on: headphones connected, charging, or travelling in a vehicle. */
+data class ContextSpan(
+    val tag: String,
+    val start: Long,
+    val end: Long,
+)
+
+/** Which situations were on at a given time. */
+class SpanIndex(spans: List<ContextSpan>) {
+    private val byTag = spans.filter { it.end > it.start }.groupBy { it.tag }.mapValues { (_, v) -> v.sortedBy { it.start } }
+
+    val isEmpty: Boolean get() = byTag.isEmpty()
+
+    fun tagsAt(t: Long): Set<String> {
+        if (byTag.isEmpty()) return emptySet()
+        val out = HashSet<String>(2)
+        for ((tag, list) in byTag) {
+            // Last span starting at or before t.
+            var lo = 0
+            var hi = list.size
+            while (lo < hi) {
+                val mid = (lo + hi) ushr 1
+                if (list[mid].start <= t) lo = mid + 1 else hi = mid
+            }
+            if (lo > 0 && list[lo - 1].end > t) out += tag
+        }
+        return out
+    }
+
+    companion object {
+        const val HEADPHONES = "headphones"
+        const val CHARGING = "charging"
+        const val VEHICLE = "vehicle"
+
+        /** Longest a single in-vehicle stretch is assumed to last without another activity change. */
+        private const val MAX_TRIP_MS = 3 * TimeUtil.HOUR
+
+        /**
+         * Builds the spans from recorded events.
+         *
+         * @param audio (time, device id, connected) for headphones and speakers
+         * @param power (time, plugged in)
+         * @param activity (time, activity name) for each activity change
+         */
+        fun spans(
+            audio: List<Triple<Long, String, Boolean>>,
+            power: List<Pair<Long, Boolean>>,
+            activity: List<Pair<Long, String>>,
+            now: Long,
+        ): List<ContextSpan> {
+            val out = mutableListOf<ContextSpan>()
+            val connected = HashSet<String>()
+            var audioSince: Long? = null
+            for ((t, id, on) in audio.sortedBy { it.first }) {
+                val wasOn = connected.isNotEmpty()
+                if (on) connected += id else connected -= id
+                if (!wasOn && connected.isNotEmpty()) audioSince = t
+                if (wasOn && connected.isEmpty()) {
+                    audioSince?.let { out += ContextSpan(HEADPHONES, it, t) }
+                    audioSince = null
+                }
+            }
+            audioSince?.let { out += ContextSpan(HEADPHONES, it, now) }
+            var plugged: Long? = null
+            for ((t, on) in power.sortedBy { it.first }) {
+                if (on && plugged == null) plugged = t
+                if (!on && plugged != null) {
+                    out += ContextSpan(CHARGING, plugged, t)
+                    plugged = null
+                }
+            }
+            plugged?.let { out += ContextSpan(CHARGING, it, now) }
+            val acts = activity.sortedBy { it.first }
+            acts.forEachIndexed { i, (t, name) ->
+                if (name != "vehicle") return@forEachIndexed
+                val end = minOf(acts.getOrNull(i + 1)?.first ?: now, t + MAX_TRIP_MS, now)
+                if (end > t) out += ContextSpan(VEHICLE, t, end)
+            }
+            return out
+        }
+    }
+}
+
 /**
  * Predicts the next app from the apps just used, the time of day, notifications and recent
  * habits.
  *
  * Every candidate app gets a score that is a weighted sum of normalised signals (what
  * usually follows the current app, what follows the last two apps, what's usual at this hour
- * and on this kind of day, recent use, whether it just posted a notification, …). Signals are
+ * and on this kind of day, recent use, whether it just posted a notification, what you open
+ * more with headphones in, while charging or while travelling, …). Signals are
  * kept with a long memory (half-life [HALF_LIFE_MS]) and some also with a short one
  * ([SHORT_HALF_LIFE_MS]), so a change of routine such as exam week shows up within a day or two.
  *
@@ -95,11 +179,15 @@ object NextAppModel {
             "going back to the previous app",
             "just sent a notification",
             "used earlier today",
+            "usual in this situation (headphones, charging, travelling)",
         )
     private val NF = FEATURES.size
 
     /** Starting weights: the hand-tuned blend from v1.3, with the new signals small or off. */
-    private val INITIAL_WEIGHTS = doubleArrayOf(1.0, 0.0, 0.5, 1.0, 0.0, 0.0, 2.0, 0.5, 1.0, 1.0, 0.0)
+    private val INITIAL_WEIGHTS = doubleArrayOf(1.0, 0.0, 0.5, 1.0, 0.0, 0.0, 2.0, 0.5, 1.0, 1.0, 0.0, 1.0)
+
+    /** A situation needs this many switches before it says anything. */
+    private const val MIN_SITUATION_SWITCHES = 15
 
     data class Config(
         val learn: Boolean = false,
@@ -124,6 +212,8 @@ object NextAppModel {
         val time: Long,
         val hour: Int,
         val weekend: Boolean,
+        /** Situations on at the time: headphones, charging, vehicle. */
+        val tags: Set<String> = emptySet(),
     )
 
     fun isTransient(packageName: String): Boolean = packageName in TRANSIENT_PACKAGES
@@ -131,6 +221,7 @@ object NextAppModel {
     private fun switches(
         sessions: List<UsageSession>,
         zone: ZoneId,
+        situations: SpanIndex? = null,
     ): List<Switch> {
         val sorted = sessions.filterNot { isTransient(it.packageName) }.sortedBy { it.start }
         val out = mutableListOf<Switch>()
@@ -145,7 +236,8 @@ object NextAppModel {
             // Staying in the same app isn't a prediction anyone needs.
             if (a.appName == b.appName) continue
             val z = TimeUtil.zoned(b.start, zone)
-            out.add(Switch(before, a.appName, b.appName, b.start, z.hour, TimeUtil.isWeekend(z.toLocalDate())))
+            val tags = situations?.tagsAt(b.start) ?: emptySet()
+            out.add(Switch(before, a.appName, b.appName, b.start, z.hour, TimeUtil.isWeekend(z.toLocalDate()), tags))
             before = a.appName
         }
         return out
@@ -165,12 +257,18 @@ object NextAppModel {
         val hour = Array(24) { HashMap<String, Double>() }
         val dayTypeHour = Array(48) { HashMap<String, Double>() }
         val global = HashMap<String, Double>()
+        val situation = HashMap<String, HashMap<String, Double>>()
+        val situationCount = HashMap<String, Int>()
         var backHits = 0.0
         var backTotal = 0.0
 
         fun observe(s: Switch) {
             val w = exp(lambda * (s.time - t0))
             global.merge(s.to, w, Double::plus)
+            for (tag in s.tags) {
+                situation.getOrPut(tag) { HashMap() }.merge(s.to, w, Double::plus)
+                situationCount.merge(tag, 1, Int::plus)
+            }
             from.getOrPut(s.from) { HashMap() }.merge(s.to, w, Double::plus)
             if (s.before != null) {
                 pair.getOrPut("${s.before}\u0000${s.from}") { HashMap() }.merge(s.to, w, Double::plus)
@@ -229,6 +327,7 @@ object NextAppModel {
             time: Long,
             recent: Map<String, Double>,
             notified: Map<String, Double>,
+            tags: Set<String> = emptySet(),
         ): Scored {
             val shortOn = config.useShortMemory
             val signals: Array<Map<String, Double>> =
@@ -244,6 +343,7 @@ object NextAppModel {
                     emptyMap(),
                     if (config.useNotifications) notified else emptyMap(),
                     emptyMap(),
+                    situationLift(tags),
                 )
             val back = if (long.backTotal > 0) long.backHits / long.backTotal else 0.0
             val candidates =
@@ -264,6 +364,24 @@ object NextAppModel {
                 }
             val scores = DoubleArray(candidates.size) { ci -> dot(weights, features[ci]) }
             return Scored(candidates, features, scores)
+        }
+
+        /**
+         * How much more often each app is opened in the current situation than overall
+         * (positive differences only), averaged over the situations that are on.
+         */
+        private fun situationLift(tags: Set<String>): Map<String, Double> {
+            val usable = tags.filter { (long.situationCount[it] ?: 0) >= MIN_SITUATION_SWITCHES }
+            if (usable.isEmpty()) return emptyMap()
+            val global = normalise(long.global)
+            val out = HashMap<String, Double>()
+            for (tag in usable) {
+                normalise(long.situation[tag]).forEach { (app, p) ->
+                    val lift = p - (global[app] ?: 0.0)
+                    if (lift > 0) out.merge(app, lift / usable.size, Double::plus)
+                }
+            }
+            return out
         }
 
         /** Learns from one switch: the opened app should have scored above the others. */
@@ -398,9 +516,11 @@ object NextAppModel {
         count: Int = 3,
         notifications: List<NotificationEvent> = emptyList(),
         config: Config = Config(),
+        situations: List<ContextSpan> = emptyList(),
     ): List<AppGuess> {
         val usable = sessions.filterNot { isTransient(it.packageName) }.filter { it.start <= now }.sortedBy { it.start }
-        val all = switches(usable, zone)
+        val index = SpanIndex(situations)
+        val all = switches(usable, zone, index)
         if (all.size < 20) return emptyList()
         val ranker = Ranker(all.first().time, config)
         val appOf = usable.associate { it.packageName to it.appName }
@@ -415,6 +535,7 @@ object NextAppModel {
                         s.before, s.from, s.hour, s.weekend, s.time,
                         recentUse(usable, s.time, recentCursor.advance(usable, s.time) { it.start }),
                         notifiedApps(notes, s.time, noteCursor.advance(notes, s.time) { it.time }, appOf),
+                        s.tags,
                     )
                 ranker.learn(scored, s.to)
             }
@@ -429,6 +550,7 @@ object NextAppModel {
                 before, current.appName, z.hour, TimeUtil.isWeekend(z.toLocalDate()), now,
                 recentUse(usable, now, recentCursor.advance(usable, now) { it.start }),
                 notifiedApps(notes, now, 0, appOf),
+                index.tagsAt(now),
             )
         val ranked = scored.candidates.indices.sortedByDescending { scored.scores[it] }.filter { scored.scores[it] > 0.0 }
         val total = ranked.sumOf { scored.scores[it] }.takeIf { it > 0 } ?: return emptyList()
@@ -464,9 +586,10 @@ object NextAppModel {
         keepRecent: Int = 12,
         notifications: List<NotificationEvent> = emptyList(),
         config: Config = Config(),
+        situations: List<ContextSpan> = emptyList(),
     ): Evaluation {
         val usable = sessions.filterNot { isTransient(it.packageName) }.filter { it.start < now }.sortedBy { it.start }
-        val all = switches(usable, zone)
+        val all = switches(usable, zone, SpanIndex(situations))
         if (all.isEmpty()) return Evaluation(null, emptyList())
         val testStart = TimeUtil.startOfDay(TimeUtil.dateOf(now, zone).minusDays((testDays - 1).toLong()), zone)
         val ranker = Ranker(all.first().time, config)
@@ -500,6 +623,7 @@ object NextAppModel {
                     s.before, s.from, s.hour, s.weekend, s.time,
                     recentUse(usable, s.time, recentCursor.advance(usable, s.time) { it.start }),
                     notified,
+                    s.tags,
                 )
             if (s.time >= testStart && trained >= PredictabilityEvaluator.MIN_TEST_TRANSITIONS) {
                 val ranked = scored.candidates.indices.sortedByDescending { scored.scores[it] }.map { scored.candidates[it] }

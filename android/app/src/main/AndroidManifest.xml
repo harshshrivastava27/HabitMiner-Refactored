@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions"/>
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <!-- Activity transitions on Android 9 and older. -->
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -109,6 +111,10 @@
 
         <receiver
             android:name=".collection.ReadingAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".collection.ActivityTransitionReceiver"
             android:exported="false" />
 
         <!-- Privacy page; Health Connect opens it to explain why sleep access is asked for. -->

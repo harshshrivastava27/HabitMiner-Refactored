@@ -335,8 +335,9 @@ private fun LazyListScope.routines(state: HabitUiState) {
             "How predictable is your next app?",
             info =
                 "Tested on your recent app switches: before each switch HabitMiner guesses, then learns from what you opened. " +
-                    "It weighs what usually follows your current app, your last two apps, the hour of day, apps used in the last hour " +
-                    "and apps that just notified you, and favours recent days.",
+                    "It weighs what usually follows your current app, your last two apps, the hour of day, apps used in the last hour, " +
+                    "apps that just notified you, and what you open more with headphones in, while charging or while travelling. " +
+                    "Recent days count more.",
         )
     }
     item(key = "predict") { PredictabilitySection(insights.predictability, insights.predictionDriftAt) }

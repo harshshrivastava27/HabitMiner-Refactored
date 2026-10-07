@@ -169,7 +169,8 @@ class InsightsComputer
             val nights = routine.nights.takeLast(7)
             val excluded =
                 routine.periods.flatMap { p -> generateSequence(p.from) { it.plusDays(1) }.takeWhile { !it.isAfter(p.to) }.toList() }.toSet()
-            val guesses = NextAppModel.evaluate(sessions, now, zone, notifications = notificationEvents)
+            val situations = contextRepository.situationSpans(horizon, now)
+            val guesses = NextAppModel.evaluate(sessions, now, zone, notifications = notificationEvents, situations = situations)
             val sleepDays = SleepDays.build(routine.nights, routine.confirmedNaps, today, 7, zone)
 
             val pickups =

@@ -698,6 +698,10 @@ class HabitViewModel
                                     nowMs - com.habitminer.analytics.NextAppModel.NOTIFIED_WINDOW_MS,
                                 ).mapNotNull { e -> e.packageName?.let { com.habitminer.analytics.NotificationEvent(e.timestamp, it) } }
                             }
+                        val situations =
+                            withContext(Dispatchers.IO) {
+                                contextRepository.situationSpans(nowMs - InsightsComputer.LOOKBACK_DAYS * 24 * 60 * 60 * 1000L, nowMs)
+                            }
                         val (after, guesses) =
                             withContext(Dispatchers.Default) {
                                 val sessions =
@@ -706,7 +710,7 @@ class HabitViewModel
                                 daily = com.habitminer.analytics.UsageSummaries.daily(sessions, 14, today, zone)
                                 apps = com.habitminer.analytics.UsageSummaries.apps(sessions, today, zone)
                                 com.habitminer.analytics.NextAppModel.currentApp(sessions) to
-                                    com.habitminer.analytics.NextAppModel.predict(sessions, nowMs, zone, notifications = notes)
+                                    com.habitminer.analytics.NextAppModel.predict(sessions, nowMs, zone, notifications = notes, situations = situations)
                             }
                         val days =
                             withContext(Dispatchers.IO) {

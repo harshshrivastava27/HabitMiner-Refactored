@@ -30,7 +30,8 @@ import javax.inject.Singleton
 
 /**
  * Records the phone-state changes that sharpen sleep and routine estimates: Do Not Disturb,
- * the next alarm, the charger, headphones, time zone, and apps being installed or removed.
+ * the next alarm, the charger, headphones, time zone, apps being installed or removed, and
+ * (through [ActivityTransitions]) still / walking / in a vehicle.
  *
  * Android only delivers most of these to receivers registered at runtime, so
  * [MonitoringService] starts and stops this. Each one is a broadcast that arrives when the
@@ -43,6 +44,7 @@ class ContextEventRecorder
     constructor(
         @ApplicationContext private val context: Context,
         private val contextRepository: ContextRepository,
+        private val activityTransitions: ActivityTransitions,
     ) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val prefs = context.getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
@@ -103,6 +105,7 @@ class ContextEventRecorder
                 ContextCompat.registerReceiver(context, packageReceiver, packages, ContextCompat.RECEIVER_EXPORTED)
             }.onFailure { android.util.Log.w("HabitMiner", "Could not register context receivers", it) }
             startAudio()
+            activityTransitions.start()
             // The state right now, in case it changed while HabitMiner wasn't running.
             recordDnd()
             recordNextAlarm()
@@ -116,6 +119,7 @@ class ContextEventRecorder
             runCatching { context.unregisterReceiver(packageReceiver) }
             audioCallback?.let { cb -> runCatching { audioManager().unregisterAudioDeviceCallback(cb) } }
             audioCallback = null
+            activityTransitions.stop()
         }
 
         // ---- Do Not Disturb ----

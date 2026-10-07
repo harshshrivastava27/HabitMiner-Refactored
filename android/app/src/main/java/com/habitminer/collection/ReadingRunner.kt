@@ -111,7 +111,9 @@ class ReadingRunner
                         wifiPlace = place,
                         includeGyro = trigger.includeGyro,
                     )
-                contextRepository.insertSnapshot(snapshot)
+                contextRepository.insertSnapshot(
+                    snapshot.copy(batteryTempC = battery.temperatureC, powerSave = battery.powerSave, thermalStatus = battery.thermalStatus),
+                )
                 if (place != null) feedbackRepository.recordPlaceSeen(place, snapshot.timestamp)
                 true
             }
@@ -126,7 +128,7 @@ class ReadingRunner
                 latest?.takeIf { System.currentTimeMillis() - it.timestamp < 20 * 60 * 1000L }
                     ?.let { ContextLabels.motion(it.accelVariance.takeIf { v -> v >= 0f }, it.recentSteps.takeIf { s -> s >= 0 }) }
                     ?.let { it != Motion.STILL }
-            val newMode = SensingPolicy.choose(isScreenOn, recentlyMoving, battery.charging, battery.level)
+            val newMode = SensingPolicy.choose(isScreenOn, recentlyMoving, battery.charging, battery.level, battery.powerSave)
             if (newMode != mode) {
                 mode = newMode
                 prefs.edit().putString(PrefsKeys.SENSING_MODE, newMode.name).apply()
@@ -144,14 +146,23 @@ class ReadingRunner
         data class BatteryState(
             val level: Int,
             val charging: Boolean,
+            /** Battery temperature in °C, when reported. */
+            val temperatureC: Float? = null,
+            val powerSave: Boolean = false,
+            /** PowerManager thermal status (0 none … 6 shutdown), Android 10+. Some phones only ever report 0. */
+            val thermalStatus: Int? = null,
         )
 
         fun batteryState(): BatteryState {
             val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
             var level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
             var charging = bm.isCharging
+            // The sticky battery broadcast: no receiver is registered, it just returns the last value.
+            val intent = runCatching { context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)) }.getOrNull()
+            val temperature = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE }?.let { it / 10f }
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val thermal = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) pm.currentThermalStatus else null
             if (level !in 0..100) {
-                val intent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
                 if (intent != null) {
                     val raw = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
                     val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
@@ -162,7 +173,7 @@ class ReadingRunner
                     level = -1
                 }
             }
-            return BatteryState(level, charging)
+            return BatteryState(level, charging, temperature, pm.isPowerSaveMode, thermal)
         }
 
         companion object {

@@ -239,7 +239,7 @@ enum class SensingMode(val label: String, val intervalMs: Long, val explanation:
     ACTIVE("Active", 5 * TimeUtil.MINUTE, "You're moving with the screen on, so context changes quickly"),
     NORMAL("Normal", 15 * TimeUtil.MINUTE, "Screen on or charging"),
     IDLE("Idle", 30 * TimeUtil.MINUTE, "Screen off, so sampling less to save battery"),
-    LOW_BATTERY("Battery saver", 30 * TimeUtil.MINUTE, "Battery below 15%, so sensors are paused"),
+    LOW_BATTERY("Battery saver", 30 * TimeUtil.MINUTE, "Battery saver on or battery below 20%, so sampling less often (sensors pause below 15%)"),
 }
 
 object SensingPolicy {
@@ -248,9 +248,10 @@ object SensingPolicy {
         recentlyMoving: Boolean?,
         charging: Boolean,
         batteryLevel: Int,
+        powerSave: Boolean = false,
     ): SensingMode =
         when {
-            batteryLevel in 0 until 15 && !charging -> SensingMode.LOW_BATTERY
+            !charging && (powerSave || batteryLevel in 0 until 20) -> SensingMode.LOW_BATTERY
             screenOn && recentlyMoving == true -> SensingMode.ACTIVE
             screenOn || charging -> SensingMode.NORMAL
             else -> SensingMode.IDLE

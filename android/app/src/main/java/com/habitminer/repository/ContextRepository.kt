@@ -96,6 +96,31 @@ class ContextRepository
             sinceMs: Long,
         ): List<Long> = deviceEventDao.getTimesForPackageSince(com.habitminer.collection.DeviceEvents.NOTIFICATION, packageName, sinceMs)
 
+        /** Headphones, charging and in-vehicle stretches since [sinceMs], for the next-app model. */
+        suspend fun situationSpans(
+            sinceMs: Long,
+            now: Long,
+        ): List<com.habitminer.analytics.ContextSpan> {
+            val e = com.habitminer.collection.DeviceEvents
+            // Start a little earlier so a state that began before the window is known.
+            val events =
+                deviceEventDao.getTypesSince(
+                    listOf(e.AUDIO_CONNECTED, e.AUDIO_DISCONNECTED, e.POWER_CONNECTED, e.POWER_DISCONNECTED, e.ACTIVITY),
+                    sinceMs - 12 * 60 * 60 * 1000L,
+                )
+            return com.habitminer.analytics.SpanIndex.spans(
+                audio =
+                    events.filter { it.eventType == e.AUDIO_CONNECTED || it.eventType == e.AUDIO_DISCONNECTED }.map {
+                        Triple(it.timestamp, e.detailValue(it.detail, "id") ?: "?", it.eventType == e.AUDIO_CONNECTED)
+                    },
+                power =
+                    events.filter { it.eventType == e.POWER_CONNECTED || it.eventType == e.POWER_DISCONNECTED }
+                        .map { it.timestamp to (it.eventType == e.POWER_CONNECTED) },
+                activity = events.filter { it.eventType == e.ACTIVITY }.mapNotNull { ev -> e.detailValue(ev.detail, "type")?.let { ev.timestamp to it } },
+                now = now,
+            )
+        }
+
         suspend fun getDeviceEventsOfTypesSince(
             eventTypes: List<String>,
             sinceMs: Long,
