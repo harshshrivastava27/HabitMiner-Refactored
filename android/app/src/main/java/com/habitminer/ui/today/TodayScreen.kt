@@ -140,6 +140,17 @@ fun TodayScreen(
                 Spacer(Modifier.height(22.dp))
                 CheckInPanel(onAnswer = actions::answerCheckIn, onDismiss = actions::dismissCheckIn)
             }
+        } else if (state.askMood) {
+            item(key = "mood") {
+                Spacer(Modifier.height(22.dp))
+                MoodPanel(onDone = actions::answerMood)
+            }
+        }
+        if (!state.canPostNotifications && !state.notificationAskDismissed && state.daysOfData >= 2) {
+            item(key = "notify-ask") {
+                Spacer(Modifier.height(22.dp))
+                NotificationAskPanel(onGranted = actions::checkPermissions, onNotNow = actions::dismissNotificationAsk)
+            }
         }
 
         // One raised container: the most useful thing to read today.
@@ -152,11 +163,29 @@ fun TodayScreen(
                 ?.filter { it.date == today && it.explainedBy == null && state.deviationFeedback[it.key] != UserLabelEntity.FEEDBACK_EXPECTED }
                 ?.maxByOrNull { it.score }
         val contextInsight = insights?.contextInsights?.firstOrNull()
+        val insight = insights?.insight
         when {
             nap != null ->
                 item(key = "nap") {
                     Spacer(Modifier.height(22.dp))
                     NapQuestionCard(nap) { asleep -> actions.answerNap(nap.key, asleep) }
+                }
+            insight != null ->
+                item(key = "insight-${insight.key}") {
+                    Spacer(Modifier.height(22.dp))
+                    InsightPanel(
+                        insight = insight,
+                        showExplainer = !state.insightSettings.explainerSeen,
+                        onFeedback = { v -> actions.insightFeedback(insight.key, v) },
+                        onDismissExplainer = actions::dismissInsightExplainer,
+                        onOpen = {
+                            when {
+                                insight.open == "sleep" -> nav.openSleep()
+                                insight.open.startsWith("app:") -> nav.openApp(insight.open.removePrefix("app:"))
+                                else -> nav.openChanges()
+                            }
+                        },
+                    )
                 }
             deviation != null ->
                 item(key = "deviation-${deviation.key}") {

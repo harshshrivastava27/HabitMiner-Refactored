@@ -81,6 +81,7 @@ private enum class Tab(
 }
 
 private const val ROUTE_SETTINGS = "settings"
+private const val ROUTE_STORY = "story"
 private const val ROUTE_APP = "app/{${AppDetailViewModel.ARG_PACKAGE}}"
 
 @AndroidEntryPoint
@@ -153,9 +154,14 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(open) {
             when (open) {
                 com.habitminer.proactive.Notifier.OPEN_CHECKIN -> nav.goTab(Tab.TODAY.route)
-                com.habitminer.proactive.Notifier.OPEN_INSIGHTS -> nav.goTab("${Tab.TRENDS.route}?tab=${TrendsTab.OVERVIEW.name}")
+                com.habitminer.proactive.Notifier.OPEN_INSIGHTS, com.habitminer.proactive.Notifier.OPEN_TRENDS ->
+                    nav.goTab("${Tab.TRENDS.route}?tab=${TrendsTab.OVERVIEW.name}")
                 com.habitminer.proactive.Notifier.OPEN_DEVIATIONS -> nav.goTab("${Tab.TRENDS.route}?tab=${TrendsTab.CHANGES.name}")
+                com.habitminer.proactive.Notifier.OPEN_SLEEP -> nav.goTab(Tab.SLEEP.route)
+                com.habitminer.proactive.Notifier.OPEN_GOALS -> nav.goTab(Tab.GOALS.route)
+                com.habitminer.proactive.Notifier.OPEN_STORY -> nav.navigate(ROUTE_STORY) { launchSingleTop = true }
                 OPEN_IMPORT -> nav.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
+                else -> if (open?.startsWith("app:") == true) nav.openApp(open!!.removePrefix("app:"))
             }
             if (open != null) pendingOpen.value = null
         }
@@ -209,7 +215,7 @@ class MainActivity : ComponentActivity() {
                         ),
                 ) { backStack ->
                     val tab = runCatching { TrendsTab.valueOf(backStack.arguments?.getString("tab") ?: "") }.getOrDefault(TrendsTab.OVERVIEW)
-                    TrendsScreen(state, viewModel, initialTab = tab, onOpenApp = { nav.openApp(it) })
+                    TrendsScreen(state, viewModel, initialTab = tab, onOpenApp = { nav.openApp(it) }, onOpenStory = { nav.navigate(ROUTE_STORY) { launchSingleTop = true } })
                 }
                 composable(Tab.SLEEP.route) { SleepScreen(state, viewModel) }
                 composable(Tab.GOALS.route) {
@@ -253,6 +259,7 @@ class MainActivity : ComponentActivity() {
                 composable(ROUTE_APP, arguments = listOf(navArgument(AppDetailViewModel.ARG_PACKAGE) { type = NavType.StringType })) {
                     AppDetailRoute(onBack = { nav.popBackStack() })
                 }
+                composable(ROUTE_STORY) { com.habitminer.ui.story.StoryRoute(onBack = { nav.popBackStack() }) }
             }
         }
     }
@@ -303,6 +310,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         val open = intent?.getStringExtra(com.habitminer.proactive.Notifier.EXTRA_OPEN) ?: return
+        intent.getStringExtra(com.habitminer.proactive.Notifier.EXTRA_INSIGHT_KEY)?.let { viewModel.insightOpened(it) }
         if (open == com.habitminer.proactive.Notifier.OPEN_CHECKIN) {
             val promptedAt = intent.getLongExtra(com.habitminer.proactive.Notifier.EXTRA_PROMPTED_AT, -1L).takeIf { it > 0 }
             viewModel.openCheckIn(promptedAt)

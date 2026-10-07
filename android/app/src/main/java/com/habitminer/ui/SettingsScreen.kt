@@ -4,6 +4,7 @@ package com.habitminer.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -154,6 +155,8 @@ fun SettingsScreen(
             }
         }
 
+        item(key = "insights") { InsightsSection(state, viewModel) }
+
         item(key = "places") { PlacesSection(state, viewModel) }
 
         item(key = "sources") { SourcesSection(state, viewModel) }
@@ -246,6 +249,101 @@ fun ToggleRow(
         trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
         onClick = if (enabled) ({ onChange(!checked) }) else null,
     )
+}
+
+/** How the insight of the day reaches you, which topics it covers, and quiet hours for everything. */
+@Composable
+fun InsightsSection(
+    state: HabitUiState,
+    viewModel: HabitViewModel,
+) {
+    val settings = state.insightSettings
+    var showTopics by remember { mutableStateOf(false) }
+    var pickingQuiet by remember { mutableStateOf<Boolean?>(null) } // true = start, false = end
+    SectionHeader(
+        "Insights",
+        info =
+            "Once a day HabitMiner looks for something that clearly stands out against your usual days: a much quieter or " +
+                "busier day, an app you used far more, a late night, a personal best. Most days nothing does, and then there's " +
+                "no insight.\n\nUseful and Fewer like this teach it which topics you care about.",
+    )
+    val options = com.habitminer.analytics.InsightFrequency.entries
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding)) {
+        options.forEachIndexed { i, f ->
+            SegmentedButton(
+                selected = settings.frequency == f,
+                onClick = { viewModel.updateInsightSettings { it.copy(frequency = f) } },
+                shape = SegmentedButtonDefaults.itemShape(i, options.size),
+            ) { Text(if (f == com.habitminer.analytics.InsightFrequency.STANDOUT) "Stand-out" else f.label, maxLines = 1) }
+        }
+    }
+    Note(settings.frequency.description)
+    Spacer(Modifier.height(4.dp))
+    RowGroup {
+        row {
+            ListRow(
+                "Topics",
+                supporting =
+                    if (settings.disabled.isEmpty()) {
+                        "All topics"
+                    } else {
+                        "${com.habitminer.analytics.InsightFamily.entries.size - settings.disabled.size} of ${com.habitminer.analytics.InsightFamily.entries.size} on"
+                    },
+                onClick = { showTopics = !showTopics },
+            )
+        }
+        if (showTopics) {
+            com.habitminer.analytics.InsightFamily.entries.forEach { family ->
+                row {
+                    ToggleRow(
+                        family.label,
+                        family.description,
+                        family !in settings.disabled,
+                        onChange = { on -> viewModel.updateInsightSettings { s -> s.copy(disabled = if (on) s.disabled - family else s.disabled + family) } },
+                    )
+                }
+            }
+        }
+        row {
+            val windows = listOf(8 to 20, 9 to 21, 10 to 22)
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("Notification hours", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text("When an insight may arrive as a notification", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    windows.forEachIndexed { i, (a, b) ->
+                        SegmentedButton(
+                            selected = settings.windowStartHour == a && settings.windowEndHour == b,
+                            onClick = { viewModel.updateInsightSettings { it.copy(windowStartHour = a, windowEndHour = b) } },
+                            shape = SegmentedButtonDefaults.itemShape(i, windows.size),
+                        ) { Text(String.format(java.util.Locale.US, "%02d–%02d", a, b)) }
+                    }
+                }
+            }
+        }
+        row {
+            ListRow(
+                "Quiet hours",
+                supporting =
+                    "No questions, insights or summaries from ${com.habitminer.analytics.Format.clockFromMinutes(settings.quiet.startMinute)} " +
+                        "to ${com.habitminer.analytics.Format.clockFromMinutes(settings.quiet.endMinute)}. Late-night nudges still come while you're on the phone.",
+                maxSupportingLines = 3,
+                onClick = { pickingQuiet = true },
+            )
+        }
+    }
+    pickingQuiet?.let { start ->
+        com.habitminer.ui.design.TimeDialog(
+            title = if (start) "Quiet hours start" else "Quiet hours end",
+            initialMinute = if (start) settings.quiet.startMinute else settings.quiet.endMinute,
+            onConfirm = { m ->
+                viewModel.updateInsightSettings { s -> s.copy(quiet = if (start) s.quiet.copy(startMinute = m) else s.quiet.copy(endMinute = m)) }
+                // After the start, ask for the end.
+                pickingQuiet = if (start) false else null
+            },
+            onDismiss = { pickingQuiet = null },
+        )
+    }
 }
 
 /** Opt-in sources that sharpen sleep and timing: Health Connect sleep and calendar busy times. */

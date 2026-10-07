@@ -117,6 +117,10 @@
             android:name=".collection.ActivityTransitionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".proactive.GoalCheckReceiver"
+            android:exported="false" />
+
         <!-- Privacy page; Health Connect opens it to explain why sleep access is asked for. -->
         <activity
             android:name=".ui.PrivacyActivity"

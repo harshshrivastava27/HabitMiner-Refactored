@@ -267,6 +267,215 @@ class ExternalSleepMapperTest {
     }
 }
 
+class InsightTest {
+    private fun dev(
+        date: LocalDate,
+        kind: DeviationKind,
+        score: Float,
+        explained: String? = null,
+    ) = DayDeviation(date, kind, "Quieter day than usual", "detail", "ALL", score, at(date, 12), partialDay = false, explainedBy = explained)
+
+    private fun candidates(
+        report: DeviationReport,
+        coverage: Map<LocalDate, Float> = emptyMap(),
+    ) = InsightEngine.candidates(report, emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), null, null, coverage, d(10), at(d(10), 20), ZONE)
+
+    @Test
+    fun `only clear, unexplained differences on well-recorded days become insights`() {
+        val report =
+            DeviationReport(
+                listOf(
+                    dev(d(10), DeviationKind.LESS_USE, 2.4f),
+                    dev(d(10), DeviationKind.MORE_UNLOCKS, 1.5f),
+                    dev(d(9), DeviationKind.SHORT_SLEEP, 3.0f, explained = "Exams"),
+                    dev(d(9), DeviationKind.APP_SPIKE, 2.8f),
+                    dev(d(5), DeviationKind.MORE_USE, 4.0f),
+                ),
+                null,
+            )
+        val all = candidates(report)
+        assertEquals(listOf(InsightFamily.APPS, InsightFamily.SCREEN_TIME), all.map { it.family })
+        // Yesterday had a long phone shutdown: only today counts.
+        assertEquals(listOf(InsightFamily.SCREEN_TIME), candidates(report, mapOf(d(9) to 0.5f)).map { it.family })
+    }
+
+    @Test
+    fun `a longest phone-free stretch in weeks is a personal best`() {
+        val sessions = mutableListOf<UsageSession>()
+        for (day in 1..20) for (h in 8..22) sessions += s("A", d(day), h, 0, 10)
+        // Today (day 21): used at 08:00, then nothing until 12:30.
+        sessions += s("A", d(21), 8, 0, 10)
+        sessions += s("A", d(21), 12, 30, 10)
+        val now = at(d(21), 13)
+        val found = InsightEngine.candidates(DeviationReport(emptyList(), null), sessions, emptyList(), emptyList(), emptyList(), emptyList(), null, null, emptyMap(), d(21), now, ZONE)
+        val record = found.single { it.family == InsightFamily.RECORDS }
+        assertTrue(record.title.startsWith("4h 20m phone-free"))
+    }
+
+    @Test
+    fun `nothing stands out means nothing is picked`() {
+        val weak = listOf(Insight(InsightFamily.SCREEN_TIME, "k", d(10), "t", "b", "w", 1.2f, "changes"))
+        assertNull(InsightPicker.pick(weak, emptyList(), InsightFamily.entries.toSet(), d(10), kotlin.random.Random(1)))
+    }
+
+    @Test
+    fun `a topic shown yesterday isn't picked today, and switched-off topics never are`() {
+        val c =
+            listOf(
+                Insight(InsightFamily.SCREEN_TIME, "a", d(10), "t", "b", "w", 3.0f, "changes"),
+                Insight(InsightFamily.SLEEP, "b", d(10), "t", "b", "w", 2.2f, "sleep"),
+            )
+        val history = listOf(InsightHistory(d(9), InsightFamily.SCREEN_TIME, "old", null))
+        val pick = InsightPicker.pick(c, history, InsightFamily.entries.toSet(), d(10), kotlin.random.Random(3))!!
+        assertEquals(InsightFamily.SLEEP, pick.insight.family)
+        assertNull(InsightPicker.pick(c, history, setOf(InsightFamily.SCREEN_TIME), d(10), kotlin.random.Random(3)))
+    }
+
+    @Test
+    fun `fewer like this makes a topic less likely`() {
+        val c =
+            listOf(
+                Insight(InsightFamily.SCREEN_TIME, "a", d(20), "t", "b", "w", 2.5f, "changes"),
+                Insight(InsightFamily.APPS, "b", d(20), "t", "b", "w", 2.5f, "changes"),
+            )
+        val history = (1..6).map { InsightHistory(d(it), InsightFamily.APPS, "x$it", "fewer") } + (1..6).map { InsightHistory(d(it), InsightFamily.SCREEN_TIME, "y$it", "useful") }
+        val random = kotlin.random.Random(7)
+        val picks = (0 until 200).mapNotNull { InsightPicker.pick(c, history, InsightFamily.entries.toSet(), d(20), random, simulations = 1)?.insight?.family }
+        assertTrue(picks.count { it == InsightFamily.SCREEN_TIME } > 3 * picks.count { it == InsightFamily.APPS })
+    }
+
+    @Test
+    fun `a beta sample stays between 0 and 1 with the right mean`() {
+        val r = kotlin.random.Random(11)
+        val xs = (0 until 4000).map { InsightPicker.betaSample(3.0, 1.0, r) }
+        assertTrue(xs.all { it in 0.0..1.0 })
+        assertEquals(0.75, xs.average(), 0.02)
+    }
+
+    @Test
+    fun `coverage counts shutdowns and pauses within waking hours`() {
+        val gaps = DayCoverage.gaps(listOf(at(d(3), 10) to true, at(d(3), 13) to false), at(d(4), 12))
+        val cov = DayCoverage.compute(gaps, listOf(d(3)), at(d(4), 12), ZONE)
+        assertEquals(1f - 3f / 15f, cov.getValue(d(3)), 0.001f)
+    }
+
+    @Test
+    fun `stand-out frequency only notifies for very unusual days`() {
+        assertFalse(InsightFrequency.STANDOUT.notifies(2.2f))
+        assertTrue(InsightFrequency.STANDOUT.notifies(2.6f))
+        assertTrue(InsightFrequency.DAILY.notifies(2.0f))
+        assertFalse(InsightFrequency.WEEKLY.notifies(5f))
+    }
+}
+
+class DeliveryTest {
+    private val noon = at(d(3), 12)
+
+    @Test
+    fun `insights wait for a receptive moment and respect holds`() {
+        val pickup = Moment(noon, screenOn = true, idleBeforeMs = 45 * MIN)
+        assertTrue(Receptivity.receptive(pickup))
+        assertFalse(Receptivity.receptive(pickup.copy(idleBeforeMs = 5 * MIN)))
+        assertTrue(Receptivity.receptive(Moment(noon, screenOn = true, leftMessagingMs = MIN)))
+        assertEquals("Do Not Disturb", Receptivity.hold(pickup.copy(doNotDisturb = true)))
+        assertFalse(Receptivity.receptive(pickup.copy(busy = true)))
+        assertFalse(Receptivity.receptive(pickup.copy(moving = true)))
+    }
+
+    @Test
+    fun `one insight notification a day, inside the window, within the shared limit`() {
+        val m = Moment(noon, screenOn = true, idleBeforeMs = 45 * MIN)
+        fun can(
+            sent: List<SentPrompt> = emptyList(),
+            moment: Moment = m,
+            effect: Float = 3f,
+        ) = InsightDelivery.canNotify(InsightFrequency.STANDOUT, effect, false, 9, 21, moment, sent, ZONE)
+        assertTrue(can())
+        assertFalse(can(effect = 2.1f))
+        assertFalse(can(moment = m.copy(now = at(d(3), 22))))
+        assertFalse(can(sent = listOf(SentPrompt(PromptKind.INSIGHT, at(d(3), 9)))))
+        assertFalse(can(sent = (1..3).map { SentPrompt(PromptKind.CHECK_IN, at(d(3), 8 + it)) }))
+    }
+
+    @Test
+    fun `reminders follow the current stretch in an app`() {
+        val sessions = listOf(s("Insta", d(3), 11, 30, 10), s("Insta", d(3), 11, 41, 9), s("Insta", d(3), 9, 0, 30))
+        val stretch = ReminderPolicy.currentStretch(sessions, "pkg.insta", at(d(3), 11, 50))
+        assertEquals(19 * MIN, stretch)
+        assertEquals(1, ReminderPolicy.dueCount(stretch, 15))
+        assertEquals(11 * MIN, ReminderPolicy.untilNext(stretch, 15))
+        // Not in the app any more.
+        assertEquals(0L, ReminderPolicy.currentStretch(sessions, "pkg.insta", at(d(3), 12, 30)))
+    }
+
+    @Test
+    fun `check-in buttons offer what you usually answer at this hour`() {
+        val answers = listOf(at(d(1), 12) to "eating", at(d(2), 13) to "eating", at(d(2), 11) to "socialising", at(d(1), 20) to "relaxing")
+        assertEquals(listOf(CheckInOption.EATING, CheckInOption.SOCIALISING), LikelyActivity.top2(answers, noon, ZONE))
+        assertEquals(listOf(CheckInOption.STUDYING, CheckInOption.RELAXING), LikelyActivity.top2(emptyList(), noon, ZONE))
+    }
+
+    @Test
+    fun `quiet hours wrap past midnight`() {
+        val q = QuietHours(22 * 60, 8 * 60)
+        assertTrue(23 * 60 in q)
+        assertTrue(7 * 60 in q)
+        assertFalse(12 * 60 in q)
+        assertFalse(0 in QuietHours(0, 0))
+    }
+}
+
+class WeeklyStoryTest {
+    @Test
+    fun `the story covers the last seven days and ends with an experiment`() {
+        val sessions = mutableListOf<UsageSession>()
+        // Two weeks: the earlier one heavier on "Reels".
+        for (day in 1..14) {
+            sessions += s("Reels", d(day), 20, 0, if (day <= 7) 90 else 40)
+            sessions += s("Chat", d(day), 9, 0, 30)
+            sessions += s("Chat", d(day), 13, 0, 30)
+        }
+        // d(15) is a Thursday; at noon the week shown is d(8)..d(14).
+        val story = WeeklyStoryBuilder.build(sessions, emptyList(), emptyList(), emptyList(), emptyList(), 180, setOf("pkg.reels"), d(15), at(d(15), 12), ZONE)!!
+        assertEquals(d(8), story.from)
+        assertEquals(d(14), story.to)
+        assertEquals(StoryCard.Kind.WEEK, story.cards.first().kind)
+        assertEquals("1h 40m a day", story.cards.first().headline)
+        val change = story.cards.first { it.kind == StoryCard.Kind.CHANGE }
+        assertTrue(change.headline.startsWith("Reels −50m"))
+        assertTrue(change.body.contains("wanted to use less"))
+        assertEquals(StoryCard.Kind.EXPERIMENT, story.cards.last().kind)
+        assertEquals(35, story.month.size)
+        assertEquals(java.time.DayOfWeek.MONDAY, story.month.first().first.dayOfWeek)
+    }
+}
+
+class MoodPatternsTest {
+    @Test
+    fun `spearman handles ties and constant input`() {
+        assertEquals(1.0, MoodPatterns.spearman(listOf(1.0, 2.0, 3.0, 4.0), listOf(10.0, 20.0, 30.0, 40.0))!!, 1e-9)
+        assertEquals(-1.0, MoodPatterns.spearman(listOf(1.0, 2.0, 3.0), listOf(3.0, 2.0, 1.0))!!, 1e-9)
+        assertNull(MoodPatterns.spearman(listOf(2.0, 2.0, 2.0), listOf(1.0, 2.0, 3.0)))
+    }
+
+    @Test
+    fun `lower mood after more phone time shows as a pattern, with enough answers`() {
+        val sessions = mutableListOf<UsageSession>()
+        val answers = mutableListOf<MoodAnswer>()
+        for (day in 1..10) {
+            val minutes = day * 10L
+            sessions += s("A", d(day), 10, 0, minutes)
+            answers += MoodAnswer(at(d(day), 12), mood = 6 - (day + 1) / 2, energy = 3)
+        }
+        val p = MoodPatterns.compute(answers, sessions)!!
+        assertTrue(p.moodLink!! < -0.9f)
+        assertNull(p.energyLink)
+        assertTrue(p.summary!!.contains("mood lower"))
+        assertNull(MoodPatterns.compute(answers.take(5), sessions)!!.summary)
+        assertEquals(MoodAnswer(5L, 4, null), MoodPatterns.parse(5L, "mood=4"))
+    }
+}
+
 class PickupAnalyzerTest {
     @Test
     fun `classifies pickups after notifications`() {

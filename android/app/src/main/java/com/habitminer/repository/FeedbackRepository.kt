@@ -52,6 +52,20 @@ class FeedbackRepository
             )
         }
 
+        /** Mood and energy (1–5 each) right after a check-in. */
+        suspend fun saveMood(
+            mood: Int?,
+            energy: Int?,
+        ) {
+            labelDao.insert(
+                UserLabelEntity(
+                    timestamp = System.currentTimeMillis(),
+                    kind = UserLabelEntity.KIND_MOOD,
+                    value = listOfNotNull(mood?.let { "mood=$it" }, energy?.let { "energy=$it" }).joinToString(";"),
+                ),
+            )
+        }
+
         /** One answer per deviation: a new answer replaces the previous one. */
         suspend fun saveDeviationFeedback(
             fingerprint: String,

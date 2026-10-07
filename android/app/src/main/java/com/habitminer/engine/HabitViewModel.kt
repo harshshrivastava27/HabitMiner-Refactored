@@ -128,6 +128,12 @@ data class HabitUiState(
     val phoneFree: com.habitminer.analytics.PhoneFreeStretch? = null,
     /** POST_NOTIFICATIONS (Android 13+), asked for in context after the first full day. */
     val canPostNotifications: Boolean = true,
+    /** How insights reach you (Settings). */
+    val insightSettings: com.habitminer.repository.InsightSettings = com.habitminer.repository.InsightSettings(),
+    /** Right after a check-in: ask how you feel (optional). */
+    val askMood: Boolean = false,
+    /** "Allow notifications?" on Today was answered with Not now. */
+    val notificationAskDismissed: Boolean = false,
     /** Screen time per day for the last 14 days, oldest first. */
     val dailyTotals: ImmutableList<Pair<java.time.LocalDate, Long>> = persistentListOf(),
     /** Every app used in the last five weeks, most used this week first. */
@@ -158,6 +164,7 @@ class HabitViewModel
         private val analysisRepository: AnalysisRepository,
         private val healthConnectSleep: com.habitminer.sources.HealthConnectSleep,
         private val calendarBusy: com.habitminer.sources.CalendarBusy,
+        private val insightRepository: com.habitminer.repository.InsightRepository,
     ) : AndroidViewModel(application), HabitActions {
         private val _uiState = MutableStateFlow(HabitUiState(selectedHistoryDate = getStartOfDay()))
         val uiState: StateFlow<HabitUiState> = _uiState.asStateFlow()
@@ -199,6 +206,11 @@ class HabitViewModel
                     .distinctUntilChanged()
                     .collectLatest { active -> if (active) observeData() }
             }
+            viewModelScope.launch {
+                insightRepository.settings.collect { settings -> _uiState.update { it.copy(insightSettings = settings) } }
+            }
+            val prefs = application.getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+            _uiState.update { it.copy(notificationAskDismissed = prefs.getBoolean(PrefsKeys.NOTIFICATION_ASK_DISMISSED, false)) }
         }
 
         override fun checkPermissions() {
@@ -336,6 +348,7 @@ class HabitViewModel
                 contextRepository.clearCollectedData()
                 habitRepository.clearModelData()
                 feedbackRepository.clearAll()
+                insightRepository.clearAll()
                 usageIngestor.reset()
                 analysisRepository.invalidate()
                 val application = getApplication<Application>()
@@ -493,11 +506,53 @@ class HabitViewModel
 
         override fun answerCheckIn(option: com.habitminer.analytics.CheckInOption) {
             val promptedAt = _uiState.value.pendingCheckInPromptedAt
-            _uiState.update { it.copy(pendingCheckInPromptedAt = null) }
+            _uiState.update { it.copy(pendingCheckInPromptedAt = null, askMood = true) }
             viewModelScope.launch(Dispatchers.IO) {
                 feedbackRepository.saveCheckIn(option.key, promptedAt, labelContextCapture.captureJson())
                 com.habitminer.proactive.Notifier.cancelCheckIn(getApplication())
             }
+        }
+
+        override fun answerMood(
+            mood: Int?,
+            energy: Int?,
+        ) {
+            _uiState.update { it.copy(askMood = false) }
+            if (mood == null && energy == null) return
+            viewModelScope.launch(Dispatchers.IO) { feedbackRepository.saveMood(mood, energy) }
+        }
+
+        // ---- Insights ----------------------------------------------------------------------
+
+        override fun insightFeedback(
+            key: String,
+            value: String?,
+        ) {
+            viewModelScope.launch(Dispatchers.IO) {
+                insightRepository.feedback(key, value)
+                analysisRepository.invalidate()
+                insightsRefresh.tryEmit(Unit)
+                com.habitminer.proactive.Notifier.cancel(getApplication(), com.habitminer.proactive.Notifier.ID_INSIGHT)
+            }
+        }
+
+        override fun dismissInsightExplainer() = insightRepository.update { it.copy(explainerSeen = true) }
+
+        fun insightOpened(key: String) {
+            viewModelScope.launch(Dispatchers.IO) { insightRepository.markOpened(key) }
+        }
+
+        fun updateInsightSettings(change: (com.habitminer.repository.InsightSettings) -> com.habitminer.repository.InsightSettings) {
+            insightRepository.update(change)
+            // Turning a topic or insights off changes today's pick.
+            analysisRepository.invalidate()
+            insightsRefresh.tryEmit(Unit)
+        }
+
+        override fun dismissNotificationAsk() {
+            getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(PrefsKeys.NOTIFICATION_ASK_DISMISSED, true).apply()
+            _uiState.update { it.copy(notificationAskDismissed = true) }
         }
 
         // ---- Feature switches ------------------------------------------------------------
@@ -930,6 +985,7 @@ class HabitViewModel
                 contextRepository.clearCollectedData()
                 habitRepository.clearModelData()
                 feedbackRepository.clearAll()
+                insightRepository.clearAll()
                 usageIngestor.reset()
                 analysisRepository.invalidate()
 

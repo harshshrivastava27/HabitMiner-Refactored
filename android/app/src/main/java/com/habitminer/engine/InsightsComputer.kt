@@ -92,6 +92,12 @@ data class InsightsBundle(
     val sleepWeek: SleepWeek? = null,
     /** How your corrected nights shift the other estimates, once there are enough of them. */
     val sleepShift: SleepCorrections.Shift? = null,
+    /** The insight of the day, or null when nothing stands out (or insights are off). */
+    val insight: com.habitminer.repository.TodayInsight? = null,
+    /** Share of each day's waking hours with data (not shut down or paused), last 30 days. */
+    val coverage: Map<java.time.LocalDate, Float> = emptyMap(),
+    /** How your mood answers move with recent phone time. */
+    val mood: com.habitminer.analytics.MoodPattern? = null,
 ) {
     /** Today's sleep: the night that ended this morning plus today's confirmed naps. */
     val sleepToday: DailySleep? get() = sleepDays.lastOrNull()?.takeIf { it.date == java.time.Instant.ofEpochMilli(computedAt).atZone(ZoneId.systemDefault()).toLocalDate() }
@@ -107,6 +113,7 @@ class InsightsComputer
         private val contextRepository: ContextRepository,
         private val routineAnalysis: RoutineAnalysis,
         private val calendarBusy: com.habitminer.sources.CalendarBusy,
+        private val insightRepository: com.habitminer.repository.InsightRepository,
     ) {
         suspend fun compute(
             allUsage: List<AppUsageEntity>,
@@ -189,6 +196,39 @@ class InsightsComputer
                     PatternRow(it.patternDescription, it.timeSlot, it.dayType, it.occurrenceCount, it.confidence, it.lastSeenAt)
                 }
 
+            val patternGroups = PatternGrouper.group(patternRows)
+            val week = WeekComparer.compare(sessions, today, zone)
+
+            // Insight of the day: only on well-recorded days, only when something stands out.
+            val gapEvents =
+                contextRepository.getDeviceEventsOfTypesSince(
+                    listOf(DeviceEvents.SHUTDOWN, DeviceEvents.STARTUP, DeviceEvents.PAUSED, DeviceEvents.RESUMED),
+                    horizon,
+                ).map { it.timestamp to (it.eventType == DeviceEvents.SHUTDOWN || it.eventType == DeviceEvents.PAUSED) }
+            val coverage =
+                com.habitminer.analytics.DayCoverage.compute(
+                    com.habitminer.analytics.DayCoverage.gaps(gapEvents, now),
+                    (0L..29L).map { today.minusDays(it) },
+                    now,
+                    zone,
+                )
+            val candidates =
+                com.habitminer.analytics.InsightEngine.candidates(
+                    report = routine.deviations,
+                    sessions = sessions,
+                    unlocks = unlocks,
+                    nights = routine.nights,
+                    naps = routine.confirmedNaps,
+                    patterns = patternGroups,
+                    week = week,
+                    driftAt = guesses.driftAt,
+                    coverage = coverage,
+                    today = today,
+                    now = now,
+                    zone = zone,
+                )
+            val insight = runCatching { insightRepository.todaysInsight(candidates, today, now) }.getOrNull()
+
             return InsightsBundle(
                 computedAt = now,
                 todayByCategory = SessionGrouper.byCategory(todaySessions),
@@ -199,9 +239,9 @@ class InsightsComputer
                 heatmap = Heatmap.build(sessions, today, zone),
                 typicalDay = TypicalDay.build(sessions, today, now, zone, excluded),
                 dayTypes = DayTypeClusterer.cluster(sessions, today, zone),
-                week = WeekComparer.compare(sessions, today, zone),
+                week = week,
                 predictability = guesses.result,
-                patternGroups = PatternGrouper.group(patternRows),
+                patternGroups = patternGroups,
                 placeUsage = ContextInsights.byPlace(weekSessions, weekSamples, zone) { placeNames[it] ?: "Unnamed place" },
                 placeNames = placeNames,
                 deviations = routine.deviations,
@@ -215,6 +255,13 @@ class InsightsComputer
                 sleepDays = sleepDays,
                 sleepWeek = SleepDays.summarize(sleepDays, zone),
                 sleepShift = routine.sleepShift,
+                insight = insight,
+                coverage = coverage,
+                mood =
+                    com.habitminer.analytics.MoodPatterns.compute(
+                        labels.filter { it.kind == UserLabelEntity.KIND_MOOD }.mapNotNull { com.habitminer.analytics.MoodPatterns.parse(it.timestamp, it.value) },
+                        sessions,
+                    ),
             )
         }
 

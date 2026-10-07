@@ -54,5 +54,8 @@ data class UserLabelEntity(
          * every sync; your own fixes win over them.
          */
         const val KIND_SLEEP_HEALTH = "SLEEP_HEALTH_CONNECT"
+
+        /** How you felt after a check-in (Extended): value "mood=1..5;energy=1..5", either may be missing. */
+        const val KIND_MOOD = "MOOD"
     }
 }

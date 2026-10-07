@@ -120,6 +120,7 @@ object SampleData {
         val state: HabitUiState,
         val now: Long,
         val sessions: List<com.habitminer.analytics.UsageSession> = emptyList(),
+        val unlocks: List<Long> = emptyList(),
     )
 
     fun build(now: Long): Data {
@@ -342,6 +343,6 @@ object SampleData {
                 dailyTotals = com.habitminer.analytics.UsageSummaries.daily(sessions, 14, today, zone).toImmutableList(),
                 appSummaries = com.habitminer.analytics.UsageSummaries.apps(sessions, today, zone).toImmutableList(),
             )
-        return Data(state, now, sessions)
+        return Data(state, now, sessions, unlocks)
     }
 }

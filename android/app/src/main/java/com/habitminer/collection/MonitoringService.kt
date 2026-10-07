@@ -154,7 +154,11 @@ class MonitoringService : Service() {
     }
 
     private fun setPaused(paused: Boolean) {
+        if (isPaused() == paused) return
         getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PrefsKeys.MONITORING_PAUSED, paused).apply()
+        serviceScope.launch {
+            contextRepository.insertDeviceEvent(DeviceEventEntity(eventType = if (paused) DeviceEvents.PAUSED else DeviceEvents.RESUMED))
+        }
     }
 
     private fun isPaused(): Boolean = getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).getBoolean(PrefsKeys.MONITORING_PAUSED, false)
@@ -173,7 +177,7 @@ class MonitoringService : Service() {
                 runCatching { readingRunner.read(trigger) }
                     .onFailure { android.util.Log.w("HabitMiner", "Event reading failed", it) }
                 // Right after an unlock is a good moment for a question or a nudge.
-                if (trigger == ReadingRunner.Trigger.UNLOCK) runCatching { proactiveEngine.tick() }
+                if (trigger == ReadingRunner.Trigger.UNLOCK) runCatching { proactiveEngine.tick(afterUnlock = true) }
                 refreshNotification()
             }
     }

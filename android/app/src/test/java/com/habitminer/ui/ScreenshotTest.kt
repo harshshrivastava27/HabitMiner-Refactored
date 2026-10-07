@@ -181,6 +181,48 @@ class ScreenshotTest {
             AppDetailContent(pkg, AppDetailState(loading = false, detail = detail, routines = listOf("Snapchat → Telegram")), onBack = {})
         }
 
+    @Test
+    fun todayInsight() =
+        shoot("14_today_insight", dark = true) {
+            val insight =
+                com.habitminer.repository.TodayInsight(
+                    id = 1,
+                    key = "k",
+                    family = com.habitminer.analytics.InsightFamily.RECORDS,
+                    title = "4h 20m phone-free, your longest in 27 days",
+                    body = "From 08:10 to 12:30 today, without unlocking.",
+                    why = "Your longest stretch without using the phone while awake, against each day of the last four weeks.",
+                    effect = 2.5f,
+                    open = "trends",
+                    notifiedAt = null,
+                    feedback = null,
+                )
+            val state = data.state.copy(insights = data.state.insights?.copy(naps = emptyList(), insight = insight))
+            TodayScreen(state, NoActions, NoNav, now = data.now)
+        }
+
+    @Test
+    fun todayMood() = shoot("15_today_mood", dark = false) { TodayScreen(data.state.copy(askMood = true), NoActions, NoNav, now = data.now) }
+
+    @Test
+    fun weeklyStory() =
+        shoot("16_weekly_story", dark = false) {
+            val story =
+                com.habitminer.analytics.WeeklyStoryBuilder.build(
+                    sessions = data.sessions,
+                    unlocks = data.unlocks,
+                    nights = data.state.insights?.sleepNights.orEmpty(),
+                    naps = data.state.insights?.confirmedNaps.orEmpty(),
+                    patterns = data.state.insights?.patternGroups.orEmpty(),
+                    dailyTargetMinutes = 240,
+                    useLess = data.state.appSummaries.take(1).map { it.packageName }.toSet(),
+                    today = java.time.LocalDate.of(2026, 10, 3),
+                    now = data.now,
+                    zone = SampleData.zone,
+                )
+            com.habitminer.ui.story.StoryContent(com.habitminer.ui.story.StoryState(loading = false, story = story), onBack = {})
+        }
+
     /** Robolectric devices have no sensors; register the five the app uses. */
     private fun registerSensors() {
         val contexts =

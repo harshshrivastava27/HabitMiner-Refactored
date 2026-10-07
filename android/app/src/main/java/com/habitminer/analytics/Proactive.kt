@@ -6,7 +6,7 @@ import java.time.ZoneId
 import java.time.temporal.IsoFields
 
 /** What kind of prompt went out; stored so the daily budget can be enforced. */
-enum class PromptKind { CHECK_IN, NUDGE, DIGEST, NAP, PERIOD, DEVIATIONS }
+enum class PromptKind { CHECK_IN, NUDGE, DIGEST, NAP, PERIOD, DEVIATIONS, INSIGHT, REMINDER }
 
 data class SentPrompt(
     val kind: PromptKind,
@@ -191,6 +191,146 @@ object PromptPolicy {
         val last = TimeUtil.zoned(lastDigestAt, zone)
         return last.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR) != z.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR) ||
             last.get(IsoFields.WEEK_BASED_YEAR) != z.get(IsoFields.WEEK_BASED_YEAR)
+    }
+}
+
+/** What's going on right now, for deciding whether a notification is welcome. */
+data class Moment(
+    val now: Long,
+    val screenOn: Boolean,
+    /** How long the phone went unused before this pickup; null when this isn't a pickup. */
+    val idleBeforeMs: Long? = null,
+    /** How long ago a messaging app was closed, if one just was. */
+    val leftMessagingMs: Long? = null,
+    val doNotDisturb: Boolean = false,
+    /** Your calendar says you're busy (opt-in). */
+    val busy: Boolean = false,
+    /** In a vehicle, running or cycling. */
+    val moving: Boolean = false,
+    val batteryLow: Boolean = false,
+    /** Inside your quiet hours. */
+    val quiet: Boolean = false,
+)
+
+/**
+ * Receptive moments: right after picking the phone up after a while, or just after finishing
+ * a chat. Held while the screen is off, in quiet hours, on Do Not Disturb, in a meeting, on the
+ * move or on low battery.
+ */
+object Receptivity {
+    const val MIN_IDLE_MS = 20 * TimeUtil.MINUTE
+    const val AFTER_CHAT_MS = 2 * TimeUtil.MINUTE
+
+    /** Why to wait, or null if nothing stands in the way. */
+    fun hold(m: Moment): String? =
+        when {
+            !m.screenOn -> "screen off"
+            m.quiet -> "quiet hours"
+            m.doNotDisturb -> "Do Not Disturb"
+            m.busy -> "busy in your calendar"
+            m.moving -> "on the move"
+            m.batteryLow -> "battery low"
+            else -> null
+        }
+
+    fun receptive(m: Moment): Boolean =
+        hold(m) == null && ((m.idleBeforeMs ?: 0L) >= MIN_IDLE_MS || (m.leftMessagingMs != null && m.leftMessagingMs <= AFTER_CHAT_MS))
+}
+
+/** When the insight of the day goes out as a notification. */
+object InsightDelivery {
+    fun canNotify(
+        frequency: InsightFrequency,
+        effect: Float,
+        alreadyNotified: Boolean,
+        windowStartHour: Int,
+        windowEndHour: Int,
+        moment: Moment,
+        sent: List<SentPrompt>,
+        zone: ZoneId,
+    ): Boolean {
+        if (alreadyNotified || !frequency.notifies(effect)) return false
+        if (TimeUtil.hourOf(moment.now, zone) !in windowStartHour until windowEndHour) return false
+        val today = PromptPolicy.promptsToday(sent, moment.now, zone)
+        if (today.size >= PromptPolicy.MAX_PROMPTS_PER_DAY || today.any { it.kind == PromptKind.INSIGHT }) return false
+        if (today.any { moment.now - it.time < 30 * TimeUtil.MINUTE }) return false
+        return Receptivity.receptive(moment)
+    }
+}
+
+/** Reminders for apps you want to use less: after N minutes straight, then every N more. */
+object ReminderPolicy {
+    /** Gaps up to this long (a quick switch away) don't break a stretch. */
+    private const val STRETCH_GAP_MS = 2 * TimeUtil.MINUTE
+
+    /** How long you've been in [packageName] without a break, if you're in it now. */
+    fun currentStretch(
+        sessions: List<UsageSession>,
+        packageName: String,
+        now: Long,
+    ): Long {
+        val mine = sessions.filter { it.packageName == packageName && it.start <= now }.sortedByDescending { it.end }
+        val latest = mine.firstOrNull() ?: return 0L
+        if (now - latest.end > STRETCH_GAP_MS) return 0L
+        var start = latest.start
+        var used = latest.durationMs
+        for (s in mine.drop(1)) {
+            if (start - s.end > STRETCH_GAP_MS) break
+            start = minOf(start, s.start)
+            used += s.durationMs
+        }
+        return used + (now - latest.end).coerceAtLeast(0L).coerceAtMost(STRETCH_GAP_MS)
+    }
+
+    /** When the current stretch in [packageName] began, or null if you're not in it. */
+    fun stretchStart(
+        sessions: List<UsageSession>,
+        packageName: String,
+        now: Long,
+    ): Long? {
+        val mine = sessions.filter { it.packageName == packageName && it.start <= now }.sortedByDescending { it.end }
+        val latest = mine.firstOrNull() ?: return null
+        if (now - latest.end > STRETCH_GAP_MS) return null
+        var start = latest.start
+        for (s in mine.drop(1)) {
+            if (start - s.end > STRETCH_GAP_MS) break
+            start = minOf(start, s.start)
+        }
+        return start
+    }
+
+    /** The reminder number due for a stretch (1 at N minutes, 2 at 2N…), or 0. */
+    fun dueCount(
+        stretchMs: Long,
+        reminderMinutes: Int,
+    ): Int = if (reminderMinutes <= 0) 0 else (stretchMs / (reminderMinutes * TimeUtil.MINUTE)).toInt()
+
+    /** Milliseconds until the next reminder would be due, for scheduling a check. */
+    fun untilNext(
+        stretchMs: Long,
+        reminderMinutes: Int,
+    ): Long {
+        if (reminderMinutes <= 0) return Long.MAX_VALUE
+        val step = reminderMinutes * TimeUtil.MINUTE
+        return step - stretchMs % step
+    }
+}
+
+/** The two activities you most often answer around this time of day, for check-in buttons. */
+object LikelyActivity {
+    fun top2(
+        answers: List<Pair<Long, String>>,
+        now: Long,
+        zone: ZoneId,
+    ): List<CheckInOption> {
+        val hour = TimeUtil.hourOf(now, zone)
+        val near =
+            answers.filter { (t, _) ->
+                val d = kotlin.math.abs(TimeUtil.hourOf(t, zone) - hour)
+                minOf(d, 24 - d) <= 2
+            }.mapNotNull { CheckInOption.fromKey(it.second) }
+        val ranked = near.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
+        return (ranked + listOf(CheckInOption.STUDYING, CheckInOption.RELAXING, CheckInOption.SOCIALISING)).distinct().take(2)
     }
 }
 

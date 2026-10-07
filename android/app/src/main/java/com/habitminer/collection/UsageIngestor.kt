@@ -41,6 +41,11 @@ class UsageIngestor
         /** When the log was last read (0 before the first read in this process). */
         val lastIngestAt: StateFlow<Long> = _lastIngestAt.asStateFlow()
 
+        @Volatile private var _foreground: String? = null
+
+        /** The app in front at the last read (null on the home screen or with the screen off). */
+        val foreground: String? get() = _foreground
+
         /**
          * Reads new usage events and stores them. Skips the read if the last one was less than
          * [minIntervalMs] ago, so callers can ask freely. Returns the number of sessions stored.
@@ -77,6 +82,7 @@ class UsageIngestor
                         .putLong(KEY_OPEN_SINCE, read.openSince ?: -1L)
                         .apply()
                     _lastIngestAt.value = now
+                    _foreground = read.foreground?.takeUnless { appIdentityResolver.isLauncher(it) }
                     read.sessions.size
                 }
             }

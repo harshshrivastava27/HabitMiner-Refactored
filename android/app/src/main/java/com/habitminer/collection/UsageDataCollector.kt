@@ -160,6 +160,8 @@ class UsageDataCollector
             val events: List<com.habitminer.data.DeviceEventEntity>,
             /** Start of the earliest session still open when the read ended, or null if none. */
             val openSince: Long?,
+            /** The app in front when the read ended (the most recently opened one still open). */
+            val foreground: String? = null,
         )
 
         /**
@@ -255,6 +257,7 @@ class UsageDataCollector
             // Sessions still in front when the read ended are stored up to now; the next read
             // starts from their start time and replaces the row with the longer session.
             var openSince: Long? = null
+            val foreground = startTimes.maxByOrNull { it.value }?.key?.takeIf { endMs - (startTimes[it] ?: 0L) < MAX_OPEN_SESSION_MS }
             for ((pkg, start) in startTimes) {
                 val end = minOf(endMs, start + MAX_OPEN_SESSION_MS)
                 if (end - start > 2000L) result.add(entity(pkg, start, end, end - start, isHistorical))
@@ -272,7 +275,7 @@ class UsageDataCollector
             if (newSessions.isNotEmpty() && newSessions.first().previousPackageName == null) {
                 newSessions[0] = newSessions[0].copy(previousPackageName = prevStoredPackage)
             }
-            return UsageRead(newSessions, deviceEvents, openSince)
+            return UsageRead(newSessions, deviceEvents, openSince, foreground)
         }
 
         private fun entity(

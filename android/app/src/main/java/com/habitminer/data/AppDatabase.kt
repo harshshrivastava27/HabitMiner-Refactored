@@ -17,6 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DeviceEventEntity::class,
         UserLabelEntity::class,
         PlaceEntity::class,
+        InsightLogEntity::class,
     ],
     version = 10,
     exportSchema = true,
@@ -37,6 +38,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun labelDao(): LabelDao
 
     abstract fun placeDao(): PlaceDao
+
+    abstract fun insightLogDao(): InsightLogDao
 
     abstract fun batchDao(): BatchDao
 
@@ -209,7 +212,8 @@ abstract class AppDatabase : RoomDatabase() {
         /** v9 (Extended): index for MAX(endTime), which runs on every collection. */
         /**
          * v10 (Extended): a detail per device event (alarm time, Do Not Disturb mode, why a
-         * notification went away…), and battery temperature, battery saver and thermal status per reading.
+         * notification went away…), battery temperature, battery saver and thermal status per
+         * reading, and the insight log.
          */
         internal val MIGRATION_9_10 =
             object : Migration(9, 10) {
@@ -218,6 +222,14 @@ abstract class AppDatabase : RoomDatabase() {
                     database.execSQL("ALTER TABLE context_snapshots ADD COLUMN batteryTempC REAL")
                     database.execSQL("ALTER TABLE context_snapshots ADD COLUMN powerSave INTEGER")
                     database.execSQL("ALTER TABLE context_snapshots ADD COLUMN thermalStatus INTEGER")
+                    database.execSQL(
+                        "CREATE TABLE IF NOT EXISTS `insight_log` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "`timestamp` INTEGER NOT NULL, `date` TEXT NOT NULL, `family` TEXT NOT NULL, `key` TEXT NOT NULL, " +
+                            "`title` TEXT NOT NULL, `body` TEXT NOT NULL, `why` TEXT NOT NULL, `open` TEXT NOT NULL, " +
+                            "`effect` REAL NOT NULL, `score` REAL NOT NULL, " +
+                            "`probability` REAL NOT NULL, `notifiedAt` INTEGER, `feedback` TEXT, `feedbackAt` INTEGER, `openedAt` INTEGER)",
+                    )
+                    database.execSQL("CREATE INDEX IF NOT EXISTS `index_insight_log_date` ON `insight_log` (`date`)")
                 }
             }
 

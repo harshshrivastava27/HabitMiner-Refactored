@@ -93,6 +93,7 @@ fun TrendsScreen(
     initialTab: TrendsTab = TrendsTab.OVERVIEW,
     onOpenApp: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenStory: () -> Unit = {},
 ) {
     var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }
     Column(modifier = modifier.fillMaxSize()) {
@@ -113,7 +114,7 @@ fun TrendsScreen(
                 item(key = "loading") { Skeleton() }
             } else {
                 when (tab) {
-                    TrendsTab.OVERVIEW -> overview(state)
+                    TrendsTab.OVERVIEW -> overview(state, onOpenStory)
                     TrendsTab.APPS -> apps(state, onOpenApp)
                     TrendsTab.ROUTINES -> routines(state)
                     TrendsTab.CHANGES -> changes(state, actions)
@@ -128,7 +129,10 @@ fun TrendsScreen(
 // Overview
 // ---------------------------------------------------------------------------------------
 
-private fun LazyListScope.overview(state: HabitUiState) {
+private fun LazyListScope.overview(
+    state: HabitUiState,
+    onOpenStory: () -> Unit,
+) {
     val insights = state.insights ?: return
     insights.week?.let { week ->
         item(key = "week-hero") {
@@ -152,6 +156,10 @@ private fun LazyListScope.overview(state: HabitUiState) {
                 Text("Today", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+    item(key = "story") {
+        Spacer(Modifier.height(8.dp))
+        RowGroup { row { ListRow("Weekly Story", supporting = "Your last seven days in a few cards, and one small experiment", onClick = onOpenStory) } }
     }
     insights.week?.biggestMovers?.takeIf { it.isNotEmpty() }?.let { movers ->
         item(key = "movers-header") { SectionHeader("Biggest changes", info = "Average time a day in each app this week compared with the week before.") }
@@ -189,6 +197,44 @@ private fun LazyListScope.overview(state: HabitUiState) {
             RowGroup {
                 insights.placeUsage.take(5).forEach { p ->
                     row { ListRow(p.place, supporting = p.topApp?.let { "Mostly $it" }, trailingText = "${Format.duration(p.perDayMs)}/day") }
+                }
+            }
+        }
+    }
+    insights.mood?.let { mood ->
+        item(key = "mood-header") {
+            SectionHeader(
+                "Mood and your phone",
+                info =
+                    "From the mood and energy you give after check-ins, compared with your phone time in the three hours before. " +
+                        "Links like this are usually weak and don't show what causes what.",
+            )
+        }
+        item(key = "mood") {
+            RowGroup {
+                row {
+                    ListRow(
+                        mood.summary ?: if (mood.answers < com.habitminer.analytics.MoodPatterns.MIN_ANSWERS) "Not enough answers yet" else "No clear link so far",
+                        supporting =
+                            if (mood.summary != null) {
+                                "A pattern in your own answers, not a cause. Based on ${mood.answers} answers."
+                            } else {
+                                "${mood.answers} of at least ${com.habitminer.analytics.MoodPatterns.MIN_ANSWERS} answers. Rate your mood after a check-in to add more."
+                            },
+                        maxSupportingLines = 3,
+                    )
+                }
+                if (mood.averageMood != null || mood.averageEnergy != null) {
+                    row {
+                        ListRow(
+                            "Your usual answers",
+                            supporting =
+                                listOfNotNull(
+                                    mood.averageMood?.let { "Mood ${String.format(java.util.Locale.US, "%.1f", it)} of 5" },
+                                    mood.averageEnergy?.let { "energy ${String.format(java.util.Locale.US, "%.1f", it)} of 5" },
+                                ).joinToString(", "),
+                        )
+                    }
                 }
             }
         }
@@ -396,11 +442,10 @@ private fun PredictabilitySection(
     ScoreLine("Always your most-used app", result.mostUsedBaseline, colors.usual.copy(alpha = 0.4f))
     ScoreLine("Random guess", result.randomBaseline, colors.usual.copy(alpha = 0.3f))
     val best = maxOf(result.mostUsedBaseline, result.markovBaseline, result.recentBaseline)
-    val lift = result.hitRate - best
     Note(
         when {
-            lift >= 0.08f -> "Your app switching follows clear routines. "
-            lift > 0.02f -> "Your app switching is somewhat routine. "
+            result.hitRate >= 0.45f -> "Your app switching follows clear routines. "
+            result.hitRate - best >= 0.05f -> "Your app switching is somewhat routine, and weighing several signals beats any simple rule. "
             else -> "Your app switching varies a lot, which is normal. "
         } + "Tested on ${result.testedTransitions} switches from the last ${result.testDays} days.",
     )

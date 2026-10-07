@@ -48,4 +48,21 @@ interface HabitActions {
 
     /** Goes back to the estimate for the night that ended on [wakeDate]. */
     fun clearNightFix(wakeDate: java.time.LocalDate) = Unit
+
+    /** How you feel after a check-in, 1 (low) to 5 (great); nulls skip. */
+    fun answerMood(
+        mood: Int?,
+        energy: Int?,
+    ) = Unit
+
+    /** "useful", "fewer" or null (undo) for today's insight. */
+    fun insightFeedback(
+        key: String,
+        value: String?,
+    ) = Unit
+
+    fun dismissInsightExplainer() = Unit
+
+    /** "Not now" on the notification permission card. */
+    fun dismissNotificationAsk() = Unit
 }

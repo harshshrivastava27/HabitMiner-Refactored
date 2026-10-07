@@ -11,16 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,11 +25,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.habitminer.analytics.Format
 import com.habitminer.analytics.SleepSource
 import com.habitminer.analytics.TimeUtil
+import com.habitminer.ui.design.TimeDialog
 import com.habitminer.ui.theme.NumberStyles
 import java.time.LocalDate
 import java.time.ZoneId
@@ -128,29 +125,6 @@ private fun TimeRow(
         Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
         FilledTonalButton(onClick = onClick) { Text(value, style = NumberStyles.small) }
     }
-}
-
-@Composable
-private fun TimeDialog(
-    title: String,
-    initialMinute: Int,
-    onConfirm: (Int) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val context = LocalContext.current
-    val state =
-        rememberTimePickerState(
-            initialHour = initialMinute / 60,
-            initialMinute = initialMinute % 60,
-            is24Hour = android.text.format.DateFormat.is24HourFormat(context),
-        )
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { TimePicker(state = state) },
-        confirmButton = { TextButton(onClick = { onConfirm(state.hour * 60 + state.minute) }) { Text("OK") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 private fun toTime(
