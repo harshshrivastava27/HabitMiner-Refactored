@@ -67,6 +67,9 @@ object DeviceEvents {
     const val PAUSED = "PAUSED"
     const val RESUMED = "RESUMED"
 
+    /** The mindful pause was shown before an app. detail: `outcome=opened|left|dismissed;focus=true|false`. */
+    const val MINDFUL_PAUSE = "MINDFUL_PAUSE"
+
     /** An app was installed or removed; packageName is that app. */
     const val APP_INSTALLED = "APP_INSTALLED"
     const val APP_REMOVED = "APP_REMOVED"
@@ -75,7 +78,7 @@ object DeviceEvents {
     val RECORDED_BY_APP =
         setOf(
             UNLOCK, NOTIFICATION, NOTIFICATION_REMOVED, DND, NEXT_ALARM, POWER_CONNECTED, POWER_DISCONNECTED,
-            AUDIO_CONNECTED, AUDIO_DISCONNECTED, TIMEZONE, APP_INSTALLED, APP_REMOVED, ACTIVITY, PAUSED, RESUMED,
+            AUDIO_CONNECTED, AUDIO_DISCONNECTED, TIMEZONE, APP_INSTALLED, APP_REMOVED, ACTIVITY, PAUSED, RESUMED, MINDFUL_PAUSE,
         )
 
     /** Reads `key` from a `key=value;key=value` detail. */

@@ -136,6 +136,28 @@
                 android:resource="@xml/today_widget_info" />
         </receiver>
 
+        <!-- Mindful pause (off until you turn it on in HabitMiner and in Accessibility settings). -->
+        <service
+            android:name=".mindful.MindfulPauseService"
+            android:exported="false"
+            android:label="@string/mindful_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/mindful_pause_service" />
+        </service>
+
+        <activity
+            android:name=".mindful.PauseActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:theme="@style/Theme.HabitMiner" />
+
         <service
             android:name=".ui.LogActivityTileService"
             android:exported="true"

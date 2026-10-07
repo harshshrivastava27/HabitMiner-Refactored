@@ -57,6 +57,7 @@ fun SettingsScreen(
     onWallpaperColors: (Boolean) -> Unit,
     onBack: () -> Unit,
     onOpenToday: () -> Unit = {},
+    onOpenGoals: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var confirmClear by remember { mutableStateOf(false) }
@@ -159,6 +160,8 @@ fun SettingsScreen(
 
         item(key = "insights") { InsightsSection(state, viewModel) }
 
+        item(key = "mindful") { MindfulSection(onOpenGoals = onOpenGoals) }
+
         item(key = "places") { PlacesSection(state, viewModel) }
 
         item(key = "sources") { SourcesSection(state, viewModel) }
@@ -251,6 +254,101 @@ fun ToggleRow(
         trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
         onClick = if (enabled) ({ onChange(!checked) }) else null,
     )
+}
+
+/**
+ * The mindful pause (off by default): a few seconds to breathe before apps you want to use less,
+ * and focus sessions. Needs HabitMiner's accessibility service, which Android hides behind
+ * "Allow restricted settings" for apps installed from a file.
+ */
+@Composable
+fun MindfulSection(onOpenGoals: () -> Unit) {
+    val context = LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { tick++ }
+    val enabled = remember(tick) { com.habitminer.mindful.MindfulPause.enabled(context) }
+    val serviceOn = remember(tick) { com.habitminer.mindful.MindfulPause.serviceOn(context) }
+    val seconds = remember(tick) { com.habitminer.mindful.MindfulPause.seconds(context) }
+    val focusUntil = remember(tick) { com.habitminer.mindful.MindfulPause.focusUntil(context) }
+    SectionHeader(
+        "Mindful pause",
+        info =
+            "Before an app from your Use less list opens, a short breathing screen asks whether you want it now. You can always open it. " +
+                "Friction like this cut social media use by about a third in a field study, without blocking anything.\n\n" +
+                "It uses an accessibility service that only notices which app comes to the front. It never reads the screen.",
+    )
+    RowGroup {
+        row {
+            ToggleRow(
+                "Pause before use-less apps",
+                when {
+                    enabled && !serviceOn -> "Also turn on \"HabitMiner mindful pause\" in Accessibility settings"
+                    enabled -> "On, for the apps in Goals > Use less"
+                    else -> "Off"
+                },
+                enabled,
+                onChange = { on ->
+                    com.habitminer.mindful.MindfulPause.setEnabled(context, on)
+                    if (on && !com.habitminer.mindful.MindfulPause.serviceOn(context)) {
+                        runCatching {
+                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    }
+                    tick++
+                },
+            )
+        }
+        if (enabled) {
+            row { ListRow("Apps", supporting = "Your Use less apps in Goals", onClick = onOpenGoals) }
+            row {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text("Length", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(8.dp))
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        listOf(5, 8).forEachIndexed { i, s ->
+                            SegmentedButton(
+                                selected = seconds == s,
+                                onClick = {
+                                    com.habitminer.mindful.MindfulPause.setSeconds(context, s)
+                                    tick++
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(i, 2),
+                            ) { Text("$s seconds") }
+                        }
+                    }
+                }
+            }
+            row {
+                if (focusUntil != null) {
+                    ListRow(
+                        "Focusing until ${com.habitminer.analytics.Format.clock(focusUntil, java.time.ZoneId.systemDefault())}",
+                        supporting = "Use-less apps stay behind the pause until then. Tap to end now.",
+                        onClick = {
+                            com.habitminer.mindful.MindfulPause.endFocus(context)
+                            tick++
+                        },
+                    )
+                } else {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text("Focus session", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Use-less apps can't be opened from the pause until it ends (or you end it).", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                            listOf(25, 50, 90).forEach { m ->
+                                androidx.compose.material3.OutlinedButton(onClick = {
+                                    com.habitminer.mindful.MindfulPause.startFocus(context, m)
+                                    tick++
+                                }) { Text("$m min") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (enabled && !serviceOn) {
+        com.habitminer.ui.RestrictedSettingsGuide("the accessibility service", modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 8.dp))
+    }
 }
 
 /** Pause, take a break, and choose what's recorded. */

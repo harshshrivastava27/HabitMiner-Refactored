@@ -259,6 +259,7 @@ class MainActivity : ComponentActivity() {
                         onWallpaperColors = { appearanceSettings.setWallpaperColors(it) },
                         onBack = { nav.popBackStack() },
                         onOpenToday = { nav.goTab(Tab.TODAY.route) },
+                        onOpenGoals = { nav.goTab(Tab.GOALS.route) },
                     )
                 }
                 composable(ROUTE_APP, arguments = listOf(navArgument(AppDetailViewModel.ARG_PACKAGE) { type = NavType.StringType })) {

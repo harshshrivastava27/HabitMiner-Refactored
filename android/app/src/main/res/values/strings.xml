@@ -11,4 +11,6 @@
     <string name="shortcut_log_long">Log what you\'re doing</string>
     <string name="shortcut_story">Weekly Story</string>
     <string name="shortcut_sleep">Sleep</string>
+    <string name="mindful_label">HabitMiner mindful pause</string>
+    <string name="mindful_description">Shows a short breathing pause before apps you chose to use less in HabitMiner, so you can decide whether to open them. It only notices which app comes to the front and never reads what is on screen. It does nothing until you turn the pause on in HabitMiner.</string>
 </resources>

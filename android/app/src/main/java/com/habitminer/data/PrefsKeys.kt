@@ -33,6 +33,11 @@ object PrefsKeys {
     const val BREAK_UNTIL = "break_until"
     const val WELCOME_BACK_SHOWN = "welcome_back_shown"
 
+    /** Mindful pause (off by default), its length in seconds, and a focus session's end. */
+    const val MINDFUL_ENABLED = "mindful_enabled"
+    const val MINDFUL_SECONDS = "mindful_seconds"
+    const val FOCUS_UNTIL = "focus_until"
+
     /** Per-source switches (all on by default). */
     const val SOURCE_LIGHT = "source_light"
     const val SOURCE_MOTION = "source_motion"
