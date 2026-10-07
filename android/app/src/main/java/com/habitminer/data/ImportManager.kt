@@ -175,7 +175,7 @@ class ImportManager
                         }
                     val ts = r["timestamp"]?.toLongOrNull() ?: return@mapNotNull null
                     if (!existing.add("$type:$ts")) return@mapNotNull null
-                    DeviceEventEntity(eventType = type, packageName = r["packageName"]?.ifEmpty { null }, timestamp = ts)
+                    DeviceEventEntity(eventType = type, packageName = r["packageName"]?.ifEmpty { null }, timestamp = ts, detail = r["detail"]?.ifEmpty { null })
                 }
             parsed.chunked(500).forEach { deviceEventDao.insertAll(it) }
             return parsed.size

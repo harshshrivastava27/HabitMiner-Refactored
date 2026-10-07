@@ -35,4 +35,17 @@ interface HabitActions {
     )
 
     fun selectHistoryDate(timeInMillis: Long)
+
+    /** Your own times for the night that ended on [wakeDate]. */
+    fun fixNight(
+        wakeDate: java.time.LocalDate,
+        start: Long,
+        end: Long,
+    ) = Unit
+
+    /** "That wasn't sleep": drops the night that ended on [wakeDate]. */
+    fun markNotSleep(wakeDate: java.time.LocalDate) = Unit
+
+    /** Goes back to the estimate for the night that ended on [wakeDate]. */
+    fun clearNightFix(wakeDate: java.time.LocalDate) = Unit
 }

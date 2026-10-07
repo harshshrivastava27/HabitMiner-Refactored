@@ -38,6 +38,22 @@ object LabelMappers {
         return start to end
     }
 
+    /** Nights you set yourself, latest answer per night. Values are "start|end" or "none". */
+    fun sleepFixes(labels: List<UserLabelEntity>): List<com.habitminer.analytics.SleepFix> =
+        labels.filter { it.kind == UserLabelEntity.KIND_SLEEP_FIX }
+            .sortedBy { it.timestamp }
+            .mapNotNull { l ->
+                val date = l.refKey?.removePrefix("sleep|")?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@mapNotNull null
+                if (l.value == UserLabelEntity.SLEEP_NONE) return@mapNotNull com.habitminer.analytics.SleepFix(date, 0L, 0L, notSleep = true)
+                val parts = l.value.split('|')
+                val start = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+                val end = parts.getOrNull(1)?.toLongOrNull() ?: return@mapNotNull null
+                if (end <= start) null else com.habitminer.analytics.SleepFix(date, start, end)
+            }
+            .associateBy { it.wakeDate }.values.toList()
+
+    fun sleepFixKey(wakeDate: LocalDate): String = "sleep|$wakeDate"
+
     /** Nap and period answers by key ("nap|…" → asleep/awake, "period|…" → exams/…). */
     fun answers(labels: List<UserLabelEntity>): Map<String, String> =
         labels.filter { (it.kind == UserLabelEntity.KIND_NAP || it.kind == UserLabelEntity.KIND_PERIOD) && it.refKey != null }

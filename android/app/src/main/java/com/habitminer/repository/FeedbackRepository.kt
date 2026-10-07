@@ -70,6 +70,33 @@ class FeedbackRepository
             )
         }
 
+        /**
+         * Your own times for the night that ended on [wakeDate] ([start] and [end] null means
+         * "that wasn't sleep"). Replaces an earlier fix of the same night.
+         */
+        suspend fun saveSleepFix(
+            wakeDate: java.time.LocalDate,
+            start: Long?,
+            end: Long?,
+            contextJson: String?,
+        ) {
+            val key = com.habitminer.engine.LabelMappers.sleepFixKey(wakeDate)
+            labelDao.deleteByRef(UserLabelEntity.KIND_SLEEP_FIX, key)
+            labelDao.insert(
+                UserLabelEntity(
+                    timestamp = System.currentTimeMillis(),
+                    kind = UserLabelEntity.KIND_SLEEP_FIX,
+                    value = if (start == null || end == null) UserLabelEntity.SLEEP_NONE else "$start|$end",
+                    refKey = key,
+                    contextJson = contextJson,
+                ),
+            )
+        }
+
+        /** Goes back to the estimate for that night. */
+        suspend fun clearSleepFix(wakeDate: java.time.LocalDate) =
+            labelDao.deleteByRef(UserLabelEntity.KIND_SLEEP_FIX, com.habitminer.engine.LabelMappers.sleepFixKey(wakeDate))
+
         /** "Were you asleep?" — one answer per nap; a new answer replaces the old one. */
         suspend fun saveNapAnswer(
             napKey: String,

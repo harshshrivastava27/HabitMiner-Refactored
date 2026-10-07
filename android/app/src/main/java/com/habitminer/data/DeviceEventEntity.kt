@@ -10,4 +10,6 @@ data class DeviceEventEntity(
     val eventType: String,
     val packageName: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
+    /** Extra detail for some event types, see [com.habitminer.collection.DeviceEvents]. */
+    val detail: String? = null,
 )

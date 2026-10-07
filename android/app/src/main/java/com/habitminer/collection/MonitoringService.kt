@@ -54,6 +54,8 @@ class MonitoringService : Service() {
 
     @Inject lateinit var stepCounterMonitor: StepCounterMonitor
 
+    @Inject lateinit var contextEventRecorder: ContextEventRecorder
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile private var eventReadingJob: Job? = null
@@ -108,6 +110,7 @@ class MonitoringService : Service() {
         createNotificationChannel()
         isServiceRunning.value = true
         stepCounterMonitor.start()
+        contextEventRecorder.start()
         try {
             ContextCompat.registerReceiver(this, unlockReceiver, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_NOT_EXPORTED)
             unlockReceiverRegistered = true
@@ -281,6 +284,7 @@ class MonitoringService : Service() {
             unlockReceiverRegistered = false
         }
         stepCounterMonitor.stop()
+        contextEventRecorder.stop()
         serviceScope.cancel()
     }
 }

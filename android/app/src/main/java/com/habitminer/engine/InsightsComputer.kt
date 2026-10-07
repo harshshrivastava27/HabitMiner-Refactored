@@ -13,7 +13,9 @@ import com.habitminer.analytics.GuessRecord
 import com.habitminer.analytics.LabelledPeriod
 import com.habitminer.analytics.NapCandidate
 import com.habitminer.analytics.NextAppModel
+import com.habitminer.analytics.NightSignals
 import com.habitminer.analytics.NotificationEvent
+import com.habitminer.analytics.SleepCorrections
 import com.habitminer.analytics.Heatmap
 import com.habitminer.analytics.HeatmapData
 import com.habitminer.analytics.PatternGroup
@@ -38,6 +40,7 @@ import com.habitminer.analytics.UsageSession
 import com.habitminer.analytics.WeekComparer
 import com.habitminer.analytics.WeekComparison
 import com.habitminer.collection.DeviceEventReceiver
+import com.habitminer.collection.DeviceEvents
 import com.habitminer.data.AppUsageEntity
 import com.habitminer.data.ContextSnapshotEntity
 import com.habitminer.data.DiscoveredHabitEntity
@@ -87,6 +90,8 @@ data class InsightsBundle(
     /** Night + confirmed naps for each of the last 7 days (by the day you woke up), oldest first. */
     val sleepDays: List<DailySleep> = emptyList(),
     val sleepWeek: SleepWeek? = null,
+    /** How your corrected nights shift the other estimates, once there are enough of them. */
+    val sleepShift: SleepCorrections.Shift? = null,
 ) {
     /** Today's sleep: the night that ended this morning plus today's confirmed naps. */
     val sleepToday: DailySleep? get() = sleepDays.lastOrNull()?.takeIf { it.date == java.time.Instant.ofEpochMilli(computedAt).atZone(ZoneId.systemDefault()).toLocalDate() }
@@ -124,8 +129,8 @@ class InsightsComputer
             val samples: List<ContextSample> =
                 snapshots.asSequence().filter { it.timestamp >= horizon }.map(AnalyticsMappers::sample).toList()
 
-            val eventHorizon = now - 8 * TimeUtil.DAY
-            val unlocks = contextRepository.unlockTimesSince(eventHorizon)
+            // Unlocks over the whole window, so older nights and "usual" days count them too.
+            val unlocks = contextRepository.unlockTimesSince(horizon)
             // Notifications over the whole window: the next-app model learns how often you open
             // an app right after it notifies you.
             val notificationEvents =
@@ -140,7 +145,24 @@ class InsightsComputer
             val weekSessions = sessions.filter { it.start >= weekStart }
             val weekSamples = samples.filter { it.timestamp >= weekStart }
 
-            val routine = routineAnalysis.run(sessions, samples, unlocks, labels, places, now, zone)
+            val stateEvents =
+                contextRepository.getDeviceEventsOfTypesSince(listOf(DeviceEvents.SCREEN_ON, DeviceEvents.DND, DeviceEvents.NEXT_ALARM), horizon)
+            val signals =
+                NightSignals.from(
+                    screenOn = stateEvents.filter { it.eventType == DeviceEvents.SCREEN_ON }.map { it.timestamp },
+                    unlocks = unlocks,
+                    notifications = notificationEvents.map { it.time },
+                    quietModes =
+                        stateEvents.filter { it.eventType == DeviceEvents.DND }.mapNotNull { e ->
+                            DeviceEvents.detailValue(e.detail, "mode")?.let { e.timestamp to (it != "off") }
+                        },
+                    nextAlarms =
+                        stateEvents.filter { it.eventType == DeviceEvents.NEXT_ALARM }.map { e ->
+                            e.timestamp to DeviceEvents.detailValue(e.detail, "at")?.toLongOrNull()
+                        },
+                    now = now,
+                )
+            val routine = routineAnalysis.run(sessions, samples, unlocks, labels, places, now, zone, signals)
             val nights = routine.nights.takeLast(7)
             val excluded =
                 routine.periods.flatMap { p -> generateSequence(p.from) { it.plusDays(1) }.takeWhile { !it.isAfter(p.to) }.toList() }.toSet()
@@ -188,6 +210,7 @@ class InsightsComputer
                 predictionDriftAt = guesses.driftAt,
                 sleepDays = sleepDays,
                 sleepWeek = SleepDays.summarize(sleepDays, zone),
+                sleepShift = routine.sleepShift,
             )
         }
 

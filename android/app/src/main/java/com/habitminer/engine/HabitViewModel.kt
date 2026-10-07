@@ -428,6 +428,37 @@ class HabitViewModel
             }
         }
 
+        override fun fixNight(
+            wakeDate: java.time.LocalDate,
+            start: Long,
+            end: Long,
+        ) = saveNightFix(wakeDate, start, end)
+
+        override fun markNotSleep(wakeDate: java.time.LocalDate) = saveNightFix(wakeDate, null, null)
+
+        override fun clearNightFix(wakeDate: java.time.LocalDate) {
+            viewModelScope.launch(Dispatchers.IO) {
+                feedbackRepository.clearSleepFix(wakeDate)
+                analysisRepository.invalidate()
+                insightsRefresh.tryEmit(Unit)
+            }
+        }
+
+        private fun saveNightFix(
+            wakeDate: java.time.LocalDate,
+            start: Long?,
+            end: Long?,
+        ) {
+            // What was shown before the fix, so exports can compare the estimate with your times.
+            val shown = _uiState.value.insights?.sleepNights?.firstOrNull { it.wakeDate == wakeDate }
+            val json = shown?.let { """{"shownStart":${it.sleepStart},"shownEnd":${it.wakeTime},"shownSource":"${it.source}"}""" }
+            viewModelScope.launch(Dispatchers.IO) {
+                feedbackRepository.saveSleepFix(wakeDate, start, end, json)
+                analysisRepository.invalidate()
+                insightsRefresh.tryEmit(Unit)
+            }
+        }
+
         override fun labelPeriod(
             key: String,
             from: java.time.LocalDate,

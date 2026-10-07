@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UserLabelEntity::class,
         PlaceEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -52,7 +52,7 @@ abstract class AppDatabase : RoomDatabase() {
                         AppDatabase::class.java,
                         "habitminer_database",
                     )
-                        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                         .build()
                 instance = newInstance
                 newInstance
@@ -207,6 +207,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
 
         /** v9 (Extended): index for MAX(endTime), which runs on every collection. */
+        /** v10 (Extended): a detail per device event (alarm time, Do Not Disturb mode, why a notification went away…). */
+        internal val MIGRATION_9_10 =
+            object : Migration(9, 10) {
+                override fun migrate(database: SupportSQLiteDatabase) {
+                    database.execSQL("ALTER TABLE device_events ADD COLUMN detail TEXT")
+                }
+            }
+
         internal val MIGRATION_8_9 =
             object : Migration(8, 9) {
                 override fun migrate(database: SupportSQLiteDatabase) {

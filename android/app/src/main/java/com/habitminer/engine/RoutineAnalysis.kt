@@ -6,7 +6,9 @@ import com.habitminer.analytics.DeviationReport
 import com.habitminer.analytics.LabelledPeriod
 import com.habitminer.analytics.NapCandidate
 import com.habitminer.analytics.NapDetector
+import com.habitminer.analytics.NightSignals
 import com.habitminer.analytics.PlaceInference
+import com.habitminer.analytics.SleepCorrections
 import com.habitminer.analytics.SleepDetector
 import com.habitminer.analytics.SleepEstimate
 import com.habitminer.analytics.TimeUtil
@@ -40,6 +42,8 @@ class RoutineAnalysis
             val answers: Map<String, String>,
             /** Naps you confirmed, (start, end). */
             val confirmedNaps: List<Pair<Long, Long>>,
+            /** How your corrected nights shift the other estimates, if they do. */
+            val sleepShift: SleepCorrections.Shift? = null,
         )
 
         suspend fun run(
@@ -50,10 +54,14 @@ class RoutineAnalysis
             places: List<PlaceEntity>,
             now: Long,
             zone: ZoneId,
+            signals: NightSignals = NightSignals(),
         ): Result {
             val today = TimeUtil.dateOf(now, zone)
             val periods = LabelMappers.periods(labels)
-            val nights = SleepDetector.detectRange(sessions, unlocks, samples, today, 30, now, zone)
+            val detected = SleepDetector.detectRange(sessions, unlocks, samples, today, 30, now, zone, signals)
+            // Nights you corrected use your times and teach the estimate for the others.
+            val fixes = LabelMappers.sleepFixes(labels)
+            val nights = SleepCorrections.apply(detected, fixes, sessions, unlocks, samples, zone, signals)
             val report = DeviationFinder.find(sessions, unlocks, nights, today, now, zone, periods)
 
             // A labelled period keeps growing while the change it explains continues.
@@ -84,6 +92,7 @@ class RoutineAnalysis
                 periods = periods,
                 answers = LabelMappers.answers(labels),
                 confirmedNaps = LabelMappers.confirmedNaps(labels),
+                sleepShift = SleepCorrections.shift(detected, fixes),
             )
         }
     }

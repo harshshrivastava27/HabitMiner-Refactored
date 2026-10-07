@@ -39,5 +39,13 @@ data class UserLabelEntity(
          * {"from": "2026-10-04", "until": "2026-10-09"}; until grows while the change lasts.
          */
         const val KIND_PERIOD = "PERIOD"
+
+        /**
+         * Your own times for a night (Extended). refKey "sleep|<wake date>", value
+         * "<start ms>|<end ms>" or [SLEEP_NONE] for "that wasn't sleep". contextJson holds what
+         * was shown before, so the export can compare estimate and correction.
+         */
+        const val KIND_SLEEP_FIX = "SLEEP_FIX"
+        const val SLEEP_NONE = "none"
     }
 }

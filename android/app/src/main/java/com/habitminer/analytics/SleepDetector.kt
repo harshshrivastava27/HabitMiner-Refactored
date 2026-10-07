@@ -13,6 +13,110 @@ data class BriefWake(
     val alarm: Boolean,
 )
 
+/** Where a night's times come from. */
+enum class SleepSource {
+    /** Estimated from the phone alone. */
+    PHONE,
+
+    /** Estimated, then shifted by what your own corrections showed (see [SleepCorrections]). */
+    ADJUSTED,
+
+    /** Times you set yourself. */
+    YOU,
+}
+
+/**
+ * Signals that sharpen the estimate when they were recorded (Extended logs them; older data
+ * and imports from the original HabitMiner don't have them, and everything still works).
+ */
+data class NightSignals(
+    /** The screen turned on without an unlock and not because of a notification: a glance. */
+    val glances: List<Long> = emptyList(),
+    /** Do Not Disturb or bedtime mode on, as (start, end). */
+    val quietHours: List<Pair<Long, Long>> = emptyList(),
+    /** Alarm times the clock app had set. */
+    val alarms: List<Long> = emptyList(),
+) {
+    companion object {
+        /** A screen-on this soon after a notification was the notification lighting it up. */
+        private const val NOTIFICATION_WAKE_MS = 15_000L
+
+        /** A screen-on followed by an unlock this soon was an unlock, not a glance. */
+        private const val UNLOCK_AFTER_MS = 60_000L
+
+        /**
+         * Builds the signals from the recorded events.
+         *
+         * @param screenOn times the screen turned on
+         * @param unlocks unlock times
+         * @param notifications notification times
+         * @param quietModes Do Not Disturb changes as (time, on)
+         * @param nextAlarms next-alarm changes as (time recorded, alarm time or null when none)
+         */
+        fun from(
+            screenOn: List<Long>,
+            unlocks: List<Long>,
+            notifications: List<Long>,
+            quietModes: List<Pair<Long, Boolean>>,
+            nextAlarms: List<Pair<Long, Long?>>,
+            now: Long,
+        ): NightSignals {
+            val unlockSorted = unlocks.sorted()
+            val notesSorted = notifications.sorted()
+            val glances =
+                screenOn.sorted().filter { t ->
+                    // First unlock at or after t - 2 s, last notification at or before t.
+                    val u = firstAtOrAfter(unlockSorted, t - 2_000L)
+                    val unlocked = u < unlockSorted.size && unlockSorted[u] - t <= UNLOCK_AFTER_MS
+                    val n = firstAtOrAfter(notesSorted, t + 1) - 1
+                    val byNotification = n >= 0 && t - notesSorted[n] <= NOTIFICATION_WAKE_MS
+                    !unlocked && !byNotification
+                }
+            val quiet = mutableListOf<Pair<Long, Long>>()
+            var onSince: Long? = null
+            for ((t, on) in quietModes.sortedBy { it.first }) {
+                if (on && onSince == null) onSince = t
+                if (!on && onSince != null) {
+                    quiet += onSince to t
+                    onSince = null
+                }
+            }
+            onSince?.let { quiet += it to now }
+            // An alarm counts if it was still set when its time came.
+            val records = nextAlarms.sortedBy { it.first }
+            val alarms =
+                records.mapIndexedNotNull { i, (recorded, at) ->
+                    if (at == null || at <= recorded) return@mapIndexedNotNull null
+                    val replacedAt = records.getOrNull(i + 1)?.first
+                    if (at > now || (replacedAt != null && replacedAt < at - 60_000L)) null else at
+                }.distinct()
+            return NightSignals(glances, quiet, alarms)
+        }
+
+        /** Index of the first value >= [t] in a sorted list (size when none). */
+        private fun firstAtOrAfter(
+            sorted: List<Long>,
+            t: Long,
+        ): Int {
+            var lo = 0
+            var hi = sorted.size
+            while (lo < hi) {
+                val mid = (lo + hi) ushr 1
+                if (sorted[mid] < t) lo = mid + 1 else hi = mid
+            }
+            return lo
+        }
+    }
+}
+
+/** Your own times for the night that ended on [wakeDate]; [notSleep] means "that wasn't sleep". */
+data class SleepFix(
+    val wakeDate: LocalDate,
+    val start: Long,
+    val end: Long,
+    val notSleep: Boolean = false,
+)
+
 /** One night's estimated sleep, keyed by the date the person woke up. */
 data class SleepEstimate(
     val wakeDate: LocalDate,
@@ -27,6 +131,11 @@ data class SleepEstimate(
     val firstAppAfterWake: String?,
     /** Short wake-ups that didn't end the night (alarm, time check, a quick message). */
     val briefWakes: List<BriefWake> = emptyList(),
+    /** Why HabitMiner thinks you were asleep, in short phrases ("charging", "dark room"…). */
+    val evidence: List<String> = emptyList(),
+    val source: SleepSource = SleepSource.PHONE,
+    /** Times the lock screen was looked at without unlocking, during the night. */
+    val glances: Int = 0,
 ) {
     /** Time asleep: from falling asleep to waking up, minus the brief wake-ups. */
     val durationMs: Long get() = (wakeTime - sleepStart - briefWakes.sumOf { it.end - it.start }).coerceAtLeast(0L)
@@ -137,6 +246,7 @@ object SleepDetector {
         wakeDate: LocalDate,
         now: Long,
         zone: ZoneId,
+        signals: NightSignals = NightSignals(),
     ): SleepEstimate? {
         // Night window: 18:00 the evening before → 14:00 on the wake date.
         val windowStart = TimeUtil.at(wakeDate, -6, 0, zone)
@@ -195,23 +305,63 @@ object SleepDetector {
         val midMinutes = TimeUtil.minuteOfDay(mid, zone)
         val midOk = midMinutes >= 23 * 60 || midMinutes <= 11 * 60
         if (!midOk) return null
+        val night = build(sessions, samples, wakeDate, sleepStart, wakeTime, wakes, signals, zone, SleepSource.PHONE)
+        val untouched = clusters[anchor + 1].start - clusters[anchor].end
+        return night.copy(evidence = listOf("phone untouched for ${Format.duration(untouched)}") + night.evidence)
+    }
+
+    /**
+     * A night with the given times: confidence, evidence and the before/after details. Used
+     * for detected nights and for nights you set yourself.
+     */
+    internal fun build(
+        sessions: List<UsageSession>,
+        samples: List<ContextSample>,
+        wakeDate: LocalDate,
+        sleepStart: Long,
+        wakeTime: Long,
+        wakes: List<BriefWake>,
+        signals: NightSignals,
+        zone: ZoneId,
+        source: SleepSource,
+    ): SleepEstimate {
+        val asleep = wakeTime - sleepStart - wakes.sumOf { it.end - it.start }
+        val mid = sleepStart + (wakeTime - sleepStart) / 2
+        val midMinutes = TimeUtil.minuteOfDay(mid, zone)
 
         // Confidence from duration, timing and context evidence inside the sleep.
         val inGap = samples.filter { it.timestamp in sleepStart..wakeTime }
         val chargingShare = if (inGap.isEmpty()) 0f else inGap.count { it.isCharging }.toFloat() / inGap.size
         val darkEvidence = inGap.any { (it.lightLux ?: 1000f) in 0f..10f }
-        val stillEvidence = Activity.stepsBetween(samples, sleepStart, wakeTime)?.let { it <= GOT_UP_STEPS * (wakes.size + 1) } == true
+        val steps = Activity.stepsBetween(samples, sleepStart, wakeTime)
+        val stillEvidence = steps?.let { it <= GOT_UP_STEPS * (wakes.size + 1) } == true
+        val quietMs = signals.quietHours.sumOf { (a, b) -> (minOf(b, wakeTime) - maxOf(a, sleepStart)).coerceAtLeast(0L) }
+        val quiet = wakeTime > sleepStart && quietMs * 2 >= wakeTime - sleepStart
+        val alarm = signals.alarms.filter { it in (sleepStart + TimeUtil.HOUR)..(wakeTime + 15 * TimeUtil.MINUTE) }.maxOrNull()
         val classicTiming = midMinutes in 0..(8 * 60)
         var score = 0
         if (asleep >= 5 * TimeUtil.HOUR) score++
         if (classicTiming) score++
-        if (chargingShare >= 0.5f || darkEvidence || stillEvidence) score++
+        if (chargingShare >= 0.5f || darkEvidence || stillEvidence || quiet) score++
         val confidence =
             when {
+                source == SleepSource.YOU -> Confidence.HIGH
                 score >= 3 -> Confidence.HIGH
                 score >= 2 -> Confidence.MEDIUM
                 else -> Confidence.LOW
             }
+        val evidence =
+            buildList {
+                if (chargingShare >= 0.5f) add("charging")
+                if (darkEvidence) add("dark room")
+                if (stillEvidence) add(if (steps == 0) "no steps" else "barely moved")
+                if (quiet) add("Do Not Disturb on")
+                if (alarm != null) add("alarm set for ${Format.clock(alarm, zone)}")
+            }
+        // A brief wake-up within a few minutes of a set alarm was the alarm.
+        val markedWakes =
+            wakes.map { w -> if (!w.alarm && signals.alarms.any { kotlin.math.abs(it - w.start) <= 5 * TimeUtil.MINUTE }) w.copy(alarm = true) else w }
+        val glances = signals.glances.count { g -> g in sleepStart..wakeTime && markedWakes.none { g in (it.start - TimeUtil.MINUTE)..(it.end + TimeUtil.MINUTE) } }
 
         // Phone use in the hour before sleep, and how much of it was in the dark.
         val preStart = sleepStart - TimeUtil.HOUR
@@ -241,8 +391,31 @@ object SleepDetector {
             preSleepDarkShare = darkShare,
             lastAppBeforeSleep = lastApp,
             firstAppAfterWake = firstApp,
-            briefWakes = wakes,
+            briefWakes = markedWakes,
+            evidence = evidence,
+            source = source,
+            glances = glances,
         )
+    }
+
+    /**
+     * A night with times you set: phone use inside it counts as being awake, so the time
+     * asleep stays honest.
+     */
+    fun fromTimes(
+        sessions: List<UsageSession>,
+        unlocks: List<Long>,
+        samples: List<ContextSample>,
+        wakeDate: LocalDate,
+        start: Long,
+        end: Long,
+        zone: ZoneId,
+        signals: NightSignals = NightSignals(),
+        source: SleepSource = SleepSource.YOU,
+    ): SleepEstimate {
+        val inside = Activity.clusters(sessions, unlocks, start, end).filter { it.start > start && it.end < end }
+        val wakes = inside.map { BriefWake(it.start, maxOf(it.end, it.start + TimeUtil.MINUTE / 2), it.usedClock) }
+        return build(sessions, samples, wakeDate, start, end, wakes, signals, zone, source)
     }
 
     /** Estimates for each of the last [days] wake dates, oldest first. */
@@ -254,9 +427,10 @@ object SleepDetector {
         days: Int,
         now: Long,
         zone: ZoneId,
+        signals: NightSignals = NightSignals(),
     ): List<SleepEstimate> =
         (days - 1 downTo 0).mapNotNull { back ->
-            detect(sessions, unlocks, samples, today.minusDays(back.toLong()), now, zone)
+            detect(sessions, unlocks, samples, today.minusDays(back.toLong()), now, zone, signals)
         }
 
     fun summarize(

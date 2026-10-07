@@ -138,6 +138,111 @@ class SleepDetectorTest {
     }
 }
 
+class SleepSignalsTest {
+    private val wake = d(3)
+    private val sessions = listOf(s("A", d(2), 23, 0, 30), s("B", wake, 7, 30, 5))
+
+    @Test
+    fun `a screen-on without unlock or notification is a glance`() {
+        val screenOn = listOf(at(wake, 2, 0), at(wake, 3, 0), at(wake, 4, 0))
+        val signals =
+            NightSignals.from(
+                screenOn = screenOn,
+                unlocks = listOf(at(wake, 3, 0) + 5_000),
+                notifications = listOf(at(wake, 4, 0) - 5_000),
+                quietModes = emptyList(),
+                nextAlarms = emptyList(),
+                now = at(wake, 18),
+            )
+        assertEquals(listOf(at(wake, 2, 0)), signals.glances)
+        val est = SleepDetector.detect(sessions, emptyList(), emptyList(), wake, at(wake, 18), ZONE, signals)!!
+        assertEquals(1, est.glances)
+        // Glances don't move the times.
+        assertEquals(at(d(2), 23, 30), est.sleepStart)
+    }
+
+    @Test
+    fun `do not disturb and a kept alarm become evidence`() {
+        val signals =
+            NightSignals.from(
+                screenOn = emptyList(),
+                unlocks = emptyList(),
+                notifications = emptyList(),
+                quietModes = listOf(at(d(2), 22, 30) to true, at(wake, 7, 0) to false),
+                // Alarm set in the evening for 07:20, then the clock app sets tomorrow's after it rings.
+                nextAlarms = listOf(at(d(2), 21) to at(wake, 7, 20), at(wake, 7, 21) to at(d(4), 7, 20)),
+                now = at(wake, 18),
+            )
+        assertEquals(listOf(at(wake, 7, 20)), signals.alarms)
+        assertEquals(1, signals.quietHours.size)
+        val est = SleepDetector.detect(sessions, emptyList(), emptyList(), wake, at(wake, 18), ZONE, signals)!!
+        assertTrue(est.evidence.contains("Do Not Disturb on"))
+        assertTrue(est.evidence.any { it.startsWith("alarm set for") })
+    }
+
+    @Test
+    fun `an alarm changed before it rang doesn't count`() {
+        val signals =
+            NightSignals.from(
+                emptyList(), emptyList(), emptyList(), emptyList(),
+                nextAlarms = listOf(at(d(2), 21) to at(wake, 6, 0), at(d(2), 23) to at(wake, 8, 0), at(wake, 8, 1) to null),
+                now = at(wake, 18),
+            )
+        assertEquals(listOf(at(wake, 8, 0)), signals.alarms)
+    }
+}
+
+class SleepCorrectionsTest {
+    /** A night per day: phone down at 23:00, picked up at 07:00. */
+    private val days = (2..8).map { d(it) }
+    private val sessions = days.flatMap { w -> listOf(s("A", w.minusDays(1), 22, 30, 30), s("B", w, 7, 0, 5)) }
+    private val detected = days.mapNotNull { SleepDetector.detect(sessions, emptyList(), emptyList(), it, at(d(9), 12), ZONE) }
+
+    @Test
+    fun `a fixed night uses your times`() {
+        val fix = SleepFix(d(5), at(d(4), 23, 40), at(d(5), 6, 50))
+        val nights = SleepCorrections.apply(detected, listOf(fix), sessions, emptyList(), emptyList(), ZONE)
+        val n = nights.first { it.wakeDate == d(5) }
+        assertEquals(SleepSource.YOU, n.source)
+        assertEquals(fix.start, n.sleepStart)
+        assertEquals(Confidence.HIGH, n.confidence)
+        // Fewer than three fixes: the other nights stay as estimated.
+        assertTrue(nights.filter { it.wakeDate != d(5) }.all { it.source == SleepSource.PHONE })
+    }
+
+    @Test
+    fun `three fixes shift the other nights by the typical difference`() {
+        val fixes =
+            listOf(
+                SleepFix(d(2), at(d(1), 23, 25), at(d(2), 6, 45)),
+                SleepFix(d(3), at(d(2), 23, 35), at(d(3), 6, 40)),
+                SleepFix(d(4), at(d(3), 23, 30), at(d(4), 7, 0)),
+            )
+        val shift = SleepCorrections.shift(detected, fixes)!!
+        assertEquals(30 * MIN, shift.startMs)
+        assertEquals(-15 * MIN, shift.endMs)
+        val nights = SleepCorrections.apply(detected, fixes, sessions, emptyList(), emptyList(), ZONE)
+        val other = nights.first { it.wakeDate == d(7) }
+        assertEquals(SleepSource.ADJUSTED, other.source)
+        assertEquals(at(d(6), 23, 30), other.sleepStart)
+        assertEquals(at(d(7), 6, 45), other.wakeTime)
+    }
+
+    @Test
+    fun `that wasn't sleep removes the night`() {
+        val nights = SleepCorrections.apply(detected, listOf(SleepFix(d(6), 0, 0, notSleep = true)), sessions, emptyList(), emptyList(), ZONE)
+        assertTrue(nights.none { it.wakeDate == d(6) })
+        assertEquals(detected.size - 1, nights.size)
+    }
+
+    @Test
+    fun `phone use inside a fixed night counts as awake`() {
+        val withUse = sessions + s("C", d(5), 2, 0, 20)
+        val n = SleepDetector.fromTimes(withUse, emptyList(), emptyList(), d(5), at(d(4), 23, 0), at(d(5), 7, 0), ZONE)
+        assertEquals(8 * 60 * MIN - 20 * MIN, n.durationMs)
+    }
+}
+
 class PickupAnalyzerTest {
     @Test
     fun `classifies pickups after notifications`() {

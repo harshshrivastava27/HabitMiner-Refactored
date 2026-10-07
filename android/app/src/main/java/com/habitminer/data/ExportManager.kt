@@ -137,12 +137,11 @@ class ExportManager
                 //    lock-screen, screen and power events copied from Android's log ("system").
                 val eventsFile = File(exportDir, "device_events_$timestamp.csv")
                 val events = contextRepository.getAllDeviceEvents()
-                val appTypes = setOf(com.habitminer.collection.DeviceEvents.UNLOCK, com.habitminer.collection.DeviceEvents.NOTIFICATION)
                 FileWriter(eventsFile).use { writer ->
-                    writer.append("eventType,packageName,timestamp,source\n")
+                    writer.append("eventType,packageName,timestamp,source,detail\n")
                     events.forEach {
-                        val source = if (it.eventType in appTypes) "app" else "system"
-                        writer.append("${escapeCsv(it.eventType)},${escapeCsv(it.packageName ?: "")},${it.timestamp},$source\n")
+                        val source = if (it.eventType in com.habitminer.collection.DeviceEvents.RECORDED_BY_APP) "app" else "system"
+                        writer.append("${escapeCsv(it.eventType)},${escapeCsv(it.packageName ?: "")},${it.timestamp},$source,${escapeCsv(it.detail ?: "")}\n")
                     }
                 }
 

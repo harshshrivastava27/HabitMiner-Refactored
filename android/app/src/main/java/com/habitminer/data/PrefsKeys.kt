@@ -24,4 +24,13 @@ object PrefsKeys {
     /** Monitoring paused from the notification or Settings; survives the service restarting. */
     const val MONITORING_PAUSED = "monitoring_paused"
     const val LAST_PRUNE_DAY = "last_prune_day"
+
+    /** Salt for hashed device IDs (headphones), separate from the places salt. */
+    const val ID_SALT = "id_salt"
+
+    /** The headphones and speakers connected when last checked, as stored details. */
+    const val AUDIO_DEVICES = "audio_devices"
+
+    /** Prefix for the last stored detail of a state event type (DND, next alarm, time zone). */
+    const val LAST_EVENT_PREFIX = "last_event_"
 }
