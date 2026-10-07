@@ -78,6 +78,7 @@ fun StatusScreen(
     val hoursSoFar = java.time.LocalTime.now().hour + 1
     val hoursWithReading =
         state.todaySnapshots.map { java.time.Instant.ofEpochMilli(it.timestamp).atZone(java.time.ZoneId.systemDefault()).hour }.distinct().size
+            .coerceAtMost(hoursSoFar)
 
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item(key = "title") { ScreenTitle("Status", subtitle = "Is HabitMiner collecting, and what does it cost?") }

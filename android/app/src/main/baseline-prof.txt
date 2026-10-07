@@ -1,0 +1,12 @@
+# Baseline profile: compile HabitMiner's own startup and screen code ahead of time when the
+# app is installed, instead of interpreting it on first use. Compose, Room and the other
+# libraries ship their own profiles, which profileinstaller merges in.
+HSPLcom/habitminer/HabitMinerApp;->**(**)**
+HSPLcom/habitminer/ui/**;->**(**)**
+HSPLcom/habitminer/engine/**;->**(**)**
+HSPLcom/habitminer/analytics/**;->**(**)**
+HSPLcom/habitminer/repository/**;->**(**)**
+HSPLcom/habitminer/data/**;->**(**)**
+Lcom/habitminer/ui/**;
+Lcom/habitminer/engine/**;
+Lcom/habitminer/analytics/**;

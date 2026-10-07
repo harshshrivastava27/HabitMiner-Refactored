@@ -119,13 +119,13 @@ class ScreenshotTest {
     }
 
     @Test
-    fun todayLight() = shoot("01_today_light", dark = false) { TodayScreen(data.state, NoActions, NoNav, intention = "Finish the lab report") }
+    fun todayLight() = shoot("01_today_light", dark = false) { TodayScreen(data.state, NoActions, NoNav, intention = "Finish the lab report", now = data.now) }
 
     @Test
-    fun todayDark() = shoot("02_today_dark", dark = true) { TodayScreen(data.state, NoActions, NoNav) }
+    fun todayDark() = shoot("02_today_dark", dark = true) { TodayScreen(data.state, NoActions, NoNav, now = data.now) }
 
     @Test
-    fun todayCheckIn() = shoot("03_today_checkin", dark = false) { TodayScreen(data.state.copy(pendingCheckInPromptedAt = data.now), NoActions, NoNav) }
+    fun todayCheckIn() = shoot("03_today_checkin", dark = false) { TodayScreen(data.state.copy(pendingCheckInPromptedAt = data.now), NoActions, NoNav, now = data.now) }
 
     @Test
     fun trendsOverview() = shoot("04_trends_overview", dark = true) { TrendsScreen(data.state, NoActions, TrendsTab.OVERVIEW, onOpenApp = {}) }

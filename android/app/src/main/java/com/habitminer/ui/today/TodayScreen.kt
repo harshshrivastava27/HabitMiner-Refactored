@@ -98,11 +98,11 @@ fun TodayScreen(
     modifier: Modifier = Modifier,
     /** Today's intention from Goals, shown under the comparison. */
     intention: String? = null,
+    now: Long = System.currentTimeMillis(),
 ) {
     val zone = remember { ZoneId.systemDefault() }
     val insights = state.insights
-    val now = insights?.computedAt?.coerceAtLeast(state.lastUsageUpdate ?: 0L) ?: System.currentTimeMillis()
-    val today = TimeUtil.dateOf(System.currentTimeMillis(), zone)
+    val today = TimeUtil.dateOf(now, zone)
 
     val todaySessions = remember(state.todayAppUsage) { state.todayAppUsage.map(AnalyticsMappers::session) }
     val lastNight = insights?.lastNight?.takeIf { it.wakeDate == today }
@@ -112,7 +112,7 @@ fun TodayScreen(
         }
     val ribbon =
         remember(todaySessions, insights?.typicalDay, lastNight, todayNaps, state.typicalUsage) {
-            DayRibbonBuilder.build(todaySessions, insights?.typicalDay, lastNight, todayNaps, today, System.currentTimeMillis(), zone)
+            DayRibbonBuilder.build(todaySessions, insights?.typicalDay, lastNight, todayNaps, today, now, zone)
         }
 
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {

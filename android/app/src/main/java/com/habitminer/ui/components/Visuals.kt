@@ -152,10 +152,11 @@ fun TypicalDayChart(
     curve: TypicalDayCurve,
     modifier: Modifier = Modifier,
 ) {
-    val todayColor = MaterialTheme.colorScheme.primary
-    val bandColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
-    val medianColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-    val gridColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val data = com.habitminer.ui.theme.LocalDataColors.current
+    val todayColor = data.screen
+    val bandColor = data.usual.copy(alpha = 0.14f)
+    val medianColor = data.usual.copy(alpha = 0.7f)
+    val gridColor = data.track
     val maxMinutes = maxOf(curve.high.maxOrNull() ?: 0, curve.today.maxOfOrNull { it.second } ?: 0, 60)
     val now = curve.today.lastOrNull()
     val description =
@@ -212,15 +213,15 @@ fun TypicalDayChart(
             now?.let { drawCircle(todayColor, radius = 4.dp.toPx(), center = Offset(x(it.first), y(it.second))) }
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf("00", "06", "12", "18", "24").forEach {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+            com.habitminer.ui.design.hourAxisLabels(listOf(0, 6, 12, 18, 24)).forEach {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            LegendDot(todayColor, "Today")
-            LegendDot(medianColor, "Usual")
-            LegendDot(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f), "Usual range")
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            com.habitminer.ui.design.LegendItem(todayColor, "Today")
+            com.habitminer.ui.design.LegendItem(medianColor, "Usual")
+            com.habitminer.ui.design.LegendItem(data.usual.copy(alpha = 0.3f), "Usual range")
         }
     }
 }
@@ -330,15 +331,16 @@ fun DayTimelineStrip(
     data: DayTimelineData,
     modifier: Modifier = Modifier,
 ) {
-    val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
-    // Sleep gets its own neutral lane so it can't be confused with an app colour or "dark".
-    val sleepColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-    val darkColor = Color(0xFF3949AB)
-    val dimColor = Color(0xFFFFB74D)
-    val brightColor = Color(0xFFFFEE58)
-    val movingColor = Color(0xFF66BB6A)
-    val chargeColor = Color(0xFF26C6DA)
-    val unknownColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+    val data = com.habitminer.ui.theme.LocalDataColors.current
+    val track = data.track
+    // Sleep gets its own lane so it can't be confused with an app colour or "dark".
+    val sleepColor = data.sleep
+    val darkColor = Color(0xFF3B4199)
+    val dimColor = Color(0xFFC08A2E)
+    val brightColor = Color(0xFFE8C547)
+    val movingColor = data.good
+    val chargeColor = data.pickups
+    val unknownColor = data.usual.copy(alpha = 0.25f)
 
     Column(modifier = modifier.fillMaxWidth()) {
         Canvas(
@@ -394,22 +396,22 @@ fun DayTimelineStrip(
             }
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf("00", "06", "12", "18", "24").forEach {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+            com.habitminer.ui.design.hourAxisLabels(listOf(0, 6, 12, 18, 24)).forEach {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            LegendDot(sleepColor, "Sleep & naps (top line)")
-            LegendDot(darkColor, "Dark")
-            LegendDot(dimColor, "Dim")
-            LegendDot(brightColor, "Bright")
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            com.habitminer.ui.design.LegendItem(sleepColor, "Asleep")
+            com.habitminer.ui.design.LegendItem(darkColor, "Dark")
+            com.habitminer.ui.design.LegendItem(dimColor, "Dim")
+            com.habitminer.ui.design.LegendItem(brightColor, "Bright")
         }
-        Spacer(modifier = Modifier.height(2.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            LegendDot(movingColor, "Moving")
-            LegendDot(chargeColor, "Charging")
-            LegendDot(unknownColor, "Screen off (no reading)")
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            com.habitminer.ui.design.LegendItem(movingColor, "Moving")
+            com.habitminer.ui.design.LegendItem(chargeColor, "Charging")
+            com.habitminer.ui.design.LegendItem(unknownColor, "No reading")
         }
     }
 }
