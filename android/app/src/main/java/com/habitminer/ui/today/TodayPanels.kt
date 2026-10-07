@@ -58,7 +58,7 @@ fun InsightPanel(
 ) {
     val haptic = rememberConfirmHaptic()
     HeroContainer(modifier = Modifier.clickable(onClickLabel = "See details", onClick = onOpen)) {
-        Text("Insight of the day · ${insight.family.label}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text("Insight of the day", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(6.dp))
         Text(insight.title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
@@ -200,4 +200,41 @@ fun NotificationAskPanel(
             TextButton(onClick = onNotNow) { Text("Not now") }
         }
     }
+}
+
+/** After a break: how it went, gently. */
+@Composable
+fun WelcomeBackPanel(
+    summary: com.habitminer.analytics.BreakSummary,
+    onDismiss: () -> Unit,
+) {
+    HeroContainer {
+        Text("Welcome back", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(6.dp))
+        Text(summary.headline, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Over ${summary.days} days: ${com.habitminer.analytics.Format.duration(summary.avgPerDayMs)} a day and about ${summary.pickupsPerDay} pickups a day" +
+                (summary.usualPickupsPerDay?.let { " (usually $it)" } ?: "") + ". Those days stay out of your usual pattern.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        FilledTonalButton(onClick = onDismiss) { Text("Thanks") }
+    }
+}
+
+/** A quiet line while on a break. */
+@Composable
+fun BreakBanner(
+    until: java.time.LocalDate,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        "On a break until ${until.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM", java.util.Locale.getDefault()))}: " +
+            "no notifications, and these days don't count as usual.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
 }

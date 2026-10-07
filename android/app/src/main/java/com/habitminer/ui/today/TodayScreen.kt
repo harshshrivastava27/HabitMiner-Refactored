@@ -135,6 +135,16 @@ fun TodayScreen(
             DayRibbonChart(ribbon)
         }
 
+        state.recording.breakUntil?.takeIf { until -> state.recording.breakFrom?.let { !today.isBefore(it) } == true && !today.isAfter(until) }?.let { until ->
+            item(key = "break") { BreakBanner(until, modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 12.dp)) }
+        }
+        state.welcomeBack?.let { summary ->
+            item(key = "welcome-back") {
+                Spacer(Modifier.height(22.dp))
+                WelcomeBackPanel(summary, onDismiss = actions::dismissWelcomeBack)
+            }
+        }
+
         if (state.pendingCheckInPromptedAt != null) {
             item(key = "checkin") {
                 Spacer(Modifier.height(22.dp))
@@ -146,7 +156,10 @@ fun TodayScreen(
                 MoodPanel(onDone = actions::answerMood)
             }
         }
-        if (!state.canPostNotifications && !state.notificationAskDismissed && state.daysOfData >= 2) {
+        val askNotifications = !state.canPostNotifications && !state.notificationAskDismissed && state.daysOfData >= 2
+        // One raised card at a time: a question you're answering comes first.
+        val busySlot = state.pendingCheckInPromptedAt != null || state.askMood || askNotifications || state.welcomeBack != null
+        if (askNotifications && state.pendingCheckInPromptedAt == null && !state.askMood) {
             item(key = "notify-ask") {
                 Spacer(Modifier.height(22.dp))
                 NotificationAskPanel(onGranted = actions::checkPermissions, onNotNow = actions::dismissNotificationAsk)
@@ -165,6 +178,7 @@ fun TodayScreen(
         val contextInsight = insights?.contextInsights?.firstOrNull()
         val insight = insights?.insight
         when {
+            busySlot -> Unit
             nap != null ->
                 item(key = "nap") {
                     Spacer(Modifier.height(22.dp))

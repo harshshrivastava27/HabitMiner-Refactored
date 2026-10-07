@@ -64,6 +64,7 @@ class ProactiveEngine
         private val goalsStore: GoalsStore,
         private val calendarBusy: com.habitminer.sources.CalendarBusy,
         private val readingRunner: com.habitminer.collection.ReadingRunner,
+        private val recordingControl: com.habitminer.collection.RecordingControl,
     ) {
         private val mutex = Mutex()
 
@@ -86,6 +87,8 @@ class ProactiveEngine
 
             val now = System.currentTimeMillis()
             val zone = ZoneId.systemDefault()
+            // Paused, or on a break: nothing at all.
+            if (recordingControl.isPausedNow(now) || recordingControl.onBreak(TimeUtil.dateOf(now, zone))) return
             val sent = feedbackRepository.sentPrompts()
             val screenOn = (context.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
             val settings = insightRepository.settings.value

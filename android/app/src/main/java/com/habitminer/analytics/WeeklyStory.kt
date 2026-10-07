@@ -200,3 +200,48 @@ object WeeklyStoryBuilder {
         return StoryCard(StoryCard.Kind.EXPERIMENT, "One small experiment", headline, body)
     }
 }
+
+/** "Welcome back": how a break went against the two weeks before it. */
+data class BreakSummary(
+    val days: Int,
+    val avgPerDayMs: Long,
+    val usualPerDayMs: Long?,
+    val pickupsPerDay: Int,
+    val usualPickupsPerDay: Int?,
+) {
+    val headline: String
+        get() =
+            when {
+                usualPerDayMs == null -> "${Format.duration(avgPerDayMs)} a day on your phone during the break"
+                avgPerDayMs < usualPerDayMs * 0.85 -> "${Format.duration(usualPerDayMs - avgPerDayMs)} a day less than before your break"
+                avgPerDayMs > usualPerDayMs * 1.15 -> "${Format.duration(avgPerDayMs - usualPerDayMs)} a day more than before your break"
+                else -> "About your usual phone time during the break"
+            }
+
+    companion object {
+        fun compute(
+            sessions: List<UsageSession>,
+            unlocks: List<Long>,
+            from: LocalDate,
+            until: LocalDate,
+            zone: ZoneId,
+        ): BreakSummary {
+            fun range(
+                a: LocalDate,
+                b: LocalDate,
+            ) = generateSequence(a) { it.plusDays(1) }.takeWhile { !it.isAfter(b) }.toList()
+            val breakDays = range(from, until)
+            val before = range(from.minusDays(14), from.minusDays(1))
+            val byDay = sessions.groupBy { TimeUtil.dateOf(it.start, zone) }.mapValues { (_, v) -> v.sumOf { it.durationMs } }
+            val unlocksByDay = unlocks.groupingBy { TimeUtil.dateOf(it, zone) }.eachCount()
+            val beforeDays = before.filter { (byDay[it] ?: 0L) > 0 }
+            return BreakSummary(
+                days = breakDays.size,
+                avgPerDayMs = breakDays.sumOf { byDay[it] ?: 0L } / breakDays.size.coerceAtLeast(1),
+                usualPerDayMs = if (beforeDays.size >= 3) beforeDays.sumOf { byDay.getValue(it) } / beforeDays.size else null,
+                pickupsPerDay = breakDays.sumOf { unlocksByDay[it] ?: 0 } / breakDays.size.coerceAtLeast(1),
+                usualPickupsPerDay = if (beforeDays.size >= 3) beforeDays.sumOf { unlocksByDay[it] ?: 0 } / beforeDays.size else null,
+            )
+        }
+    }
+}

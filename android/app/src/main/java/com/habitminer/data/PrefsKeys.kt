@@ -25,6 +25,21 @@ object PrefsKeys {
     const val MONITORING_PAUSED = "monitoring_paused"
     const val LAST_PRUNE_DAY = "last_prune_day"
 
+    /** A timed pause ends at this time (epoch ms); -1 = until resumed. */
+    const val PAUSED_UNTIL = "paused_until"
+
+    /** Break mode: first and last day (yyyy-MM-dd), and the break whose welcome-back was shown. */
+    const val BREAK_FROM = "break_from"
+    const val BREAK_UNTIL = "break_until"
+    const val WELCOME_BACK_SHOWN = "welcome_back_shown"
+
+    /** Per-source switches (all on by default). */
+    const val SOURCE_LIGHT = "source_light"
+    const val SOURCE_MOTION = "source_motion"
+    const val SOURCE_STEPS = "source_steps"
+    const val SOURCE_NOTIFICATIONS = "source_notifications"
+    const val SOURCE_PHONE_STATE = "source_phone_state"
+
     /** Salt for hashed device IDs (headphones), separate from the places salt. */
     const val ID_SALT = "id_salt"
 
@@ -37,6 +52,12 @@ object PrefsKeys {
 
     /** Busy times from the calendar (opt-in). */
     const val CALENDAR_ENABLED = "calendar_enabled"
+
+    /** The Quick Settings tile was offered once. */
+    const val TILE_OFFERED = "tile_offered"
+
+    /** Notification access was skipped during setup. */
+    const val NOTIFICATION_ACCESS_SKIPPED = "notification_access_skipped"
 
     /** "Allow notifications?" on Today was dismissed. */
     const val NOTIFICATION_ASK_DISMISSED = "notification_ask_dismissed"

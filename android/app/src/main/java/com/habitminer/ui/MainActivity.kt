@@ -38,6 +38,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -92,6 +94,8 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var goalsStore: GoalsStore
 
+    @Inject lateinit var widgetUpdater: com.habitminer.widget.WidgetUpdater
+
     /** Where a notification or a shared file asked us to go. */
     private val pendingOpen = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
@@ -136,7 +140,7 @@ class MainActivity : ComponentActivity() {
         val importLauncher =
             rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.importData(uri) }
 
-        if (!state.hasUsagePermission || !state.hasRuntimePermissions || !state.hasNotificationPermission) {
+        if (!state.hasUsagePermission || !state.hasRuntimePermissions || (!state.hasNotificationPermission && !state.notificationAccessSkipped)) {
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 PermissionScreen(
                     hasUsage = state.hasUsagePermission,
@@ -146,6 +150,7 @@ class MainActivity : ComponentActivity() {
                     onRuntimePermissionsGranted = { viewModel.checkPermissions() },
                     onRequestNotification = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                     onImport = { importLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                    onSkipNotification = { viewModel.skipNotificationAccess() },
                 )
             }
             return
@@ -153,7 +158,7 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(open) {
             when (open) {
-                com.habitminer.proactive.Notifier.OPEN_CHECKIN -> nav.goTab(Tab.TODAY.route)
+                com.habitminer.proactive.Notifier.OPEN_CHECKIN, "today" -> nav.goTab(Tab.TODAY.route)
                 com.habitminer.proactive.Notifier.OPEN_INSIGHTS, com.habitminer.proactive.Notifier.OPEN_TRENDS ->
                     nav.goTab("${Tab.TRENDS.route}?tab=${TrendsTab.OVERVIEW.name}")
                 com.habitminer.proactive.Notifier.OPEN_DEVIATIONS -> nav.goTab("${Tab.TRENDS.route}?tab=${TrendsTab.CHANGES.name}")
@@ -282,6 +287,12 @@ class MainActivity : ComponentActivity() {
         viewModel.refreshInsights()
         // A fresh reading so the surroundings shown are current (at most every 5 minutes).
         com.habitminer.collection.MonitoringService.requestFreshReading(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Leave the home-screen widget showing what the app just showed.
+        lifecycleScope.launch { runCatching { widgetUpdater.refresh(force = true) } }
     }
 
     override fun onNewIntent(intent: Intent) {

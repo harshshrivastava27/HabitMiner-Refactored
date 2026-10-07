@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,6 +51,7 @@ import com.habitminer.ui.design.HeroContainer
 import com.habitminer.ui.design.ListRow
 import com.habitminer.ui.design.Note
 import com.habitminer.ui.design.RowGroup
+import com.habitminer.ui.design.ScreenPadding
 import com.habitminer.ui.design.ScreenTitle
 import com.habitminer.ui.design.SectionHeader
 import com.habitminer.ui.theme.LocalDataColors
@@ -119,6 +121,11 @@ fun StatusScreen(
             }
         }
 
+        if (!state.hasNotificationPermission) {
+            item(key = "restricted") {
+                com.habitminer.ui.RestrictedSettingsGuide("notification access", modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 8.dp))
+            }
+        }
         item(key = "check-header") { SectionHeader("Checklist") }
         item(key = "checklist") {
             RowGroup {

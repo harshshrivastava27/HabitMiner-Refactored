@@ -19,6 +19,11 @@ class HabitNotificationListener : NotificationListenerService() {
     @Inject
     lateinit var deviceEventDao: DeviceEventDao
 
+    @Inject
+    lateinit var recordingControl: RecordingControl
+
+    private fun recording(): Boolean = recordingControl.state.value.notifications && !recordingControl.isPausedNow()
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lastPosted = HashMap<String, Long>()
 
@@ -30,7 +35,7 @@ class HabitNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         sbn?.let { notification ->
-            if (notification.isOngoing) return
+            if (notification.isOngoing || !recording()) return
             // A group summary arrives with its children; counting both doubles the count.
             if (notification.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return
             if (notification.packageName == packageName) return
@@ -66,7 +71,7 @@ class HabitNotificationListener : NotificationListenerService() {
     ) {
         super.onNotificationRemoved(sbn, rankingMap, reason)
         val notification = sbn ?: return
-        if (notification.isOngoing) return
+        if (notification.isOngoing || !recording()) return
         if (notification.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return
         if (notification.packageName == packageName) return
         val why =

@@ -155,6 +155,8 @@ fun SettingsScreen(
             }
         }
 
+        item(key = "recording") { RecordingSection(state, viewModel) }
+
         item(key = "insights") { InsightsSection(state, viewModel) }
 
         item(key = "places") { PlacesSection(state, viewModel) }
@@ -249,6 +251,111 @@ fun ToggleRow(
         trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
         onClick = if (enabled) ({ onChange(!checked) }) else null,
     )
+}
+
+/** Pause, take a break, and choose what's recorded. */
+@Composable
+fun RecordingSection(
+    state: HabitUiState,
+    viewModel: HabitViewModel,
+) {
+    val rec = state.recording
+    val zone = remember { java.time.ZoneId.systemDefault() }
+    var askPause by remember { mutableStateOf(false) }
+    var askBreak by remember { mutableStateOf(false) }
+    SectionHeader(
+        "Recording",
+        info =
+            "Pausing stops everything HabitMiner records, and what Android logs while paused isn't read back afterwards.\n\n" +
+                "A break keeps recording but sends no notifications, and the days are set aside so they don't change what counts as usual. " +
+                "When it ends you get a short welcome-back summary.",
+    )
+    RowGroup {
+        row {
+            ToggleRow(
+                "Recording",
+                when {
+                    !rec.paused -> "On"
+                    rec.pausedUntil != null -> "Paused until ${com.habitminer.analytics.Format.clock(rec.pausedUntil, zone)}"
+                    else -> "Paused until you turn it back on"
+                },
+                !rec.paused,
+                onChange = { on -> if (on) viewModel.resumeRecording() else askPause = true },
+            )
+        }
+        row {
+            val today = java.time.LocalDate.now(zone)
+            val onBreak = rec.breakFrom != null && rec.breakUntil != null && !today.isBefore(rec.breakFrom) && !today.isAfter(rec.breakUntil)
+            if (onBreak) {
+                ListRow(
+                    "On a break",
+                    supporting = "Until ${rec.breakUntil!!.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM", java.util.Locale.getDefault()))}. Tap to end it now.",
+                    onClick = { viewModel.endBreak() },
+                )
+            } else {
+                ListRow("Take a break", supporting = "No notifications for a few days, and those days don't count as usual", onClick = { askBreak = true })
+            }
+        }
+    }
+    Note("What's recorded")
+    RowGroup {
+        row { ToggleRow("Light and proximity", "Dark or bright, in a pocket or not; helps with sleep", rec.light, onChange = { v -> viewModel.setSources { it.copy(light = v) } }) }
+        row { ToggleRow("Motion", "Still or moving, from short accelerometer readings", rec.motion, onChange = { v -> viewModel.setSources { it.copy(motion = v) } }) }
+        row { ToggleRow("Steps", "From the phone's step counter", rec.steps, onChange = { v -> viewModel.setSources { it.copy(steps = v) } }) }
+        row { ToggleRow("Notification counts", "Which app notified you and whether you opened it, never the text", rec.notifications, onChange = { v -> viewModel.setSources { it.copy(notifications = v) } }) }
+        row {
+            ToggleRow(
+                "Phone settings and activity",
+                "Do Not Disturb, alarm time, charger, headphones, walking or travelling, time zone and app installs",
+                rec.phoneState,
+                onChange = { v -> viewModel.setSources { it.copy(phoneState = v) } },
+            )
+        }
+    }
+    if (askPause) {
+        val now = System.currentTimeMillis()
+        val tomorrowMorning = com.habitminer.analytics.TimeUtil.at(java.time.LocalDate.now(zone).plusDays(1), 8, 0, zone)
+        AlertDialog(
+            onDismissRequest = { askPause = false },
+            title = { Text("Pause recording") },
+            text = {
+                Column {
+                    listOf<Pair<String, Long?>>(
+                        "For 1 hour" to now + 60 * 60_000L,
+                        "Until tomorrow, 08:00" to tomorrowMorning,
+                        "Until I turn it back on" to null,
+                    ).forEach { (label, until) ->
+                        TextButton(onClick = {
+                            viewModel.pauseRecording(until)
+                            askPause = false
+                        }) { Text(label) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { askPause = false }) { Text("Cancel") } },
+        )
+    }
+    if (askBreak) {
+        AlertDialog(
+            onDismissRequest = { askBreak = false },
+            title = { Text("Take a break") },
+            text = {
+                Column {
+                    Text("Recording continues, notifications stop, and these days are set aside from your usual pattern.", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    listOf(2, 3, 7).forEach { days ->
+                        TextButton(onClick = {
+                            viewModel.startBreak(days)
+                            askBreak = false
+                        }) { Text(if (days == 7) "A week" else "$days days") }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { askBreak = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 /** How the insight of the day reaches you, which topics it covers, and quiet hours for everything. */

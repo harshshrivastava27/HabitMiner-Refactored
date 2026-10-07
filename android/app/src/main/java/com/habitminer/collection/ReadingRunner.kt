@@ -33,6 +33,8 @@ class ReadingRunner
         private val wifiPlaceProvider: WifiPlaceProvider,
         private val feedbackRepository: FeedbackRepository,
         private val usageIngestor: UsageIngestor,
+        private val widgetUpdater: com.habitminer.widget.WidgetUpdater,
+        private val recordingControl: RecordingControl,
     ) {
         /**
          * Why a reading is taken. Scheduled readings run every 5–30 minutes; unlocking the
@@ -58,7 +60,8 @@ class ReadingRunner
 
         fun isCollectionEnabled(): Boolean = prefs.getBoolean(PrefsKeys.COLLECTION_ENABLED, true)
 
-        fun isPaused(): Boolean = prefs.getBoolean(PrefsKeys.MONITORING_PAUSED, false)
+        /** Paused from Settings or the notification; a timed pause that ran out resumes here. */
+        suspend fun isPaused(): Boolean = recordingControl.isPaused()
 
         /** Returns true when a snapshot was stored. */
         suspend fun read(trigger: Trigger): Boolean {
@@ -90,7 +93,8 @@ class ReadingRunner
                     -1
                 }
 
-            return contextRepository.collectionMutex.withLock {
+            val stored =
+                contextRepository.collectionMutex.withLock {
                 // Skip if a snapshot was taken very recently (another trigger or the worker).
                 val skip =
                     if (trigger == Trigger.SCHEDULE) {
@@ -110,6 +114,8 @@ class ReadingRunner
                         isCharging = battery.charging,
                         wifiPlace = place,
                         includeGyro = trigger.includeGyro,
+                        light = recordingControl.state.value.light,
+                        motion = recordingControl.state.value.motion,
                     )
                 contextRepository.insertSnapshot(
                     snapshot.copy(batteryTempC = battery.temperatureC, powerSave = battery.powerSave, thermalStatus = battery.thermalStatus),
@@ -117,6 +123,9 @@ class ReadingRunner
                 if (place != null) feedbackRepository.recordPlaceSeen(place, snapshot.timestamp)
                 true
             }
+            // The home-screen widget, if placed (at most every 5 minutes).
+            runCatching { widgetUpdater.refresh() }
+            return stored
         }
 
         private suspend fun updateMode(

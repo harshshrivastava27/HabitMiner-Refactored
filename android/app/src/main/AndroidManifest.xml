@@ -52,6 +52,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
             <!-- Brings history across from the original HabitMiner: its "Share exported data"
                  sheet lists this app, and so does opening an export ZIP from a file manager. -->
             <intent-filter android:label="@string/import_label">
@@ -120,6 +123,32 @@
         <receiver
             android:name=".proactive.GoalCheckReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".widget.TodayWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_today">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".ui.LogActivityTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_habitminer"
+            android:label="@string/tile_log"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="false" />
+        </service>
 
         <!-- Privacy page; Health Connect opens it to explain why sleep access is asked for. -->
         <activity

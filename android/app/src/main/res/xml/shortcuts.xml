@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_today"
+        android:shortcutId="today"
+        android:shortcutLongLabel="@string/shortcut_today"
+        android:shortcutShortLabel="@string/shortcut_today">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="com.habitminer.ui.MainActivity"
+            android:targetPackage="com.habitminer.extended">
+            <extra android:name="open" android:value="today" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_log"
+        android:shortcutId="log"
+        android:shortcutLongLabel="@string/shortcut_log_long"
+        android:shortcutShortLabel="@string/shortcut_log">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="com.habitminer.ui.MainActivity"
+            android:targetPackage="com.habitminer.extended">
+            <extra android:name="open" android:value="checkin" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_story"
+        android:shortcutId="story"
+        android:shortcutLongLabel="@string/shortcut_story"
+        android:shortcutShortLabel="@string/shortcut_story">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="com.habitminer.ui.MainActivity"
+            android:targetPackage="com.habitminer.extended">
+            <extra android:name="open" android:value="story" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_sleep"
+        android:shortcutId="sleep"
+        android:shortcutLongLabel="@string/shortcut_sleep"
+        android:shortcutShortLabel="@string/shortcut_sleep">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="com.habitminer.ui.MainActivity"
+            android:targetPackage="com.habitminer.extended">
+            <extra android:name="open" android:value="sleep" />
+        </intent>
+    </shortcut>
+</shortcuts>

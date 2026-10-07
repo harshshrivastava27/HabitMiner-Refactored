@@ -56,6 +56,8 @@ class MonitoringService : Service() {
 
     @Inject lateinit var contextEventRecorder: ContextEventRecorder
 
+    @Inject lateinit var recordingControl: RecordingControl
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile private var eventReadingJob: Job? = null
@@ -86,6 +88,9 @@ class MonitoringService : Service() {
         const val ACTION_START = "com.habitminer.action.START"
         const val ACTION_PAUSE = "com.habitminer.action.PAUSE"
         const val ACTION_RESUME = "com.habitminer.action.RESUME"
+
+        /** Settings changed (pause, sources): update listeners and the notification. */
+        const val ACTION_REFRESH = "com.habitminer.action.REFRESH"
         const val ACTION_STOP = "com.habitminer.action.STOP"
         const val ACTION_COLLECT_NOW = "com.habitminer.action.COLLECT_NOW"
         private const val NOTIFICATION_ID = 1001
@@ -109,8 +114,7 @@ class MonitoringService : Service() {
         super.onCreate()
         createNotificationChannel()
         isServiceRunning.value = true
-        stepCounterMonitor.start()
-        contextEventRecorder.start()
+        applySources()
         try {
             ContextCompat.registerReceiver(this, unlockReceiver, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_NOT_EXPORTED)
             unlockReceiverRegistered = true
@@ -126,13 +130,21 @@ class MonitoringService : Service() {
     ): Int {
         when (intent?.action) {
             ACTION_PAUSE -> {
-                setPaused(true)
-                refreshNotification(force = true)
+                serviceScope.launch {
+                    recordingControl.pause(untilMs = null)
+                    refreshNotification(force = true)
+                }
             }
             ACTION_RESUME -> {
-                setPaused(false)
+                serviceScope.launch {
+                    recordingControl.resume()
+                    refreshNotification(force = true)
+                    requestEventReading(ReadingRunner.Trigger.SCHEDULE)
+                }
+            }
+            ACTION_REFRESH -> {
+                applySources()
                 refreshNotification(force = true)
-                requestEventReading(ReadingRunner.Trigger.SCHEDULE)
             }
             ACTION_STOP -> {
                 ReadingAlarm.cancel(this)
@@ -153,15 +165,15 @@ class MonitoringService : Service() {
         return START_STICKY
     }
 
-    private fun setPaused(paused: Boolean) {
-        if (isPaused() == paused) return
-        getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PrefsKeys.MONITORING_PAUSED, paused).apply()
-        serviceScope.launch {
-            contextRepository.insertDeviceEvent(DeviceEventEntity(eventType = if (paused) DeviceEvents.PAUSED else DeviceEvents.RESUMED))
-        }
-    }
+    private fun isPaused(): Boolean = recordingControl.isPausedNow()
 
-    private fun isPaused(): Boolean = getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).getBoolean(PrefsKeys.MONITORING_PAUSED, false)
+    /** Step counter and phone-state listeners follow the switches in Settings and pausing. */
+    private fun applySources() {
+        val state = recordingControl.state.value
+        val paused = recordingControl.isPausedNow()
+        if (state.steps && !paused) stepCounterMonitor.start() else stepCounterMonitor.stop()
+        if (state.phoneState && !paused) contextEventRecorder.start() else contextEventRecorder.stop()
+    }
 
     /** Starts the reading alarm chain if it isn't already waiting. */
     private fun ensureAlarm() {
@@ -229,7 +241,10 @@ class MonitoringService : Service() {
     }
 
     private fun notificationContent(): String {
-        if (isPaused()) return "Paused · tap Resume to continue"
+        if (isPaused()) {
+            val until = recordingControl.state.value.pausedUntil
+            return if (until != null) "Paused until ${com.habitminer.analytics.Format.clock(until, ZoneId.systemDefault())}" else "Paused. Tap Resume to continue"
+        }
         val h = TimeUnit.MILLISECONDS.toHours(todayScreenTimeMs)
         val m = TimeUnit.MILLISECONDS.toMinutes(todayScreenTimeMs) % 60
         val time = if (h > 0) "${h}h ${m}m" else "${m}m"

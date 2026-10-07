@@ -70,6 +70,11 @@ class StepCounterMonitor
         /** Starts listening if possible; safe to call repeatedly. Returns whether it is listening. */
         @Synchronized
         fun start(): Boolean {
+            if (!context.getSharedPreferences(com.habitminer.data.PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+                    .getBoolean(com.habitminer.data.PrefsKeys.SOURCE_STEPS, true)
+            ) {
+                return false
+            }
             if (registered) return true
             val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return false
             if (!hasPermission()) return false

@@ -47,6 +47,10 @@ class SensorContextCollector
             isCharging: Boolean,
             wifiPlace: String? = null,
             includeGyro: Boolean = true,
+            /** Light and proximity (Settings > What's recorded). */
+            light: Boolean = true,
+            /** Accelerometer and gyroscope. */
+            motion: Boolean = true,
         ): ContextSnapshotEntity {
             val timestamp = System.currentTimeMillis()
             var sensingMs = 0L
@@ -59,10 +63,10 @@ class SensorContextCollector
             if (collectSensors) {
                 val sensingStart = SystemClock.elapsedRealtime()
                 kotlinx.coroutines.coroutineScope {
-                    val lightDeferred = async { collectLightLevel() }
-                    val accelDeferred = async { collectMotionState(Sensor.TYPE_ACCELEROMETER) }
-                    val gyroDeferred = async { if (includeGyro) collectMotionState(Sensor.TYPE_GYROSCOPE) else null }
-                    val proxDeferred = async { collectProximityState() }
+                    val lightDeferred = async { if (light) collectLightLevel() else null }
+                    val accelDeferred = async { if (motion) collectMotionState(Sensor.TYPE_ACCELEROMETER) else null }
+                    val gyroDeferred = async { if (includeGyro && motion) collectMotionState(Sensor.TYPE_GYROSCOPE) else null }
+                    val proxDeferred = async { if (light) collectProximityState() else null }
 
                     lightLux = lightDeferred.await() ?: -1f
                     accelStats = accelDeferred.await()

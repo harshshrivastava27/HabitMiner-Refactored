@@ -56,6 +56,7 @@ fun PermissionScreen(
     onRuntimePermissionsGranted: () -> Unit,
     onRequestNotification: () -> Unit,
     onImport: (() -> Unit)? = null,
+    onSkipNotification: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val runtime = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) arrayOf(Manifest.permission.ACTIVITY_RECOGNITION) else emptyArray() }
@@ -116,6 +117,18 @@ fun PermissionScreen(
             action = "Open settings",
             onAction = onRequestNotification,
         )
+        if (current == 2) {
+            RestrictedSettingsGuide("notification access", modifier = Modifier.padding(start = 46.dp, top = 4.dp))
+            if (onSkipNotification != null) {
+                TextButton(onClick = onSkipNotification, modifier = Modifier.padding(start = 34.dp)) { Text("Skip for now") }
+                Text(
+                    "Without it, HabitMiner can't tell which pickups came after a notification. You can turn it on later from Status.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 46.dp),
+                )
+            }
+        }
         if (current == 1) {
             TextButton(onClick = {
                 runCatching {

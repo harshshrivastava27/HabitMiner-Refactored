@@ -134,6 +134,12 @@ data class HabitUiState(
     val askMood: Boolean = false,
     /** "Allow notifications?" on Today was answered with Not now. */
     val notificationAskDismissed: Boolean = false,
+    /** Notification access was skipped during setup (it can be turned on later from Status). */
+    val notificationAccessSkipped: Boolean = false,
+    /** Pause, break and what's recorded. */
+    val recording: com.habitminer.collection.RecordingState = com.habitminer.collection.RecordingState(),
+    /** After a break: how it went, until dismissed. */
+    val welcomeBack: com.habitminer.analytics.BreakSummary? = null,
     /** Screen time per day for the last 14 days, oldest first. */
     val dailyTotals: ImmutableList<Pair<java.time.LocalDate, Long>> = persistentListOf(),
     /** Every app used in the last five weeks, most used this week first. */
@@ -165,6 +171,7 @@ class HabitViewModel
         private val healthConnectSleep: com.habitminer.sources.HealthConnectSleep,
         private val calendarBusy: com.habitminer.sources.CalendarBusy,
         private val insightRepository: com.habitminer.repository.InsightRepository,
+        private val recordingControl: com.habitminer.collection.RecordingControl,
     ) : AndroidViewModel(application), HabitActions {
         private val _uiState = MutableStateFlow(HabitUiState(selectedHistoryDate = getStartOfDay()))
         val uiState: StateFlow<HabitUiState> = _uiState.asStateFlow()
@@ -209,8 +216,17 @@ class HabitViewModel
             viewModelScope.launch {
                 insightRepository.settings.collect { settings -> _uiState.update { it.copy(insightSettings = settings) } }
             }
+            viewModelScope.launch {
+                recordingControl.state.collect { rec -> _uiState.update { it.copy(recording = rec) } }
+            }
+            viewModelScope.launch(Dispatchers.IO) { loadWelcomeBack() }
             val prefs = application.getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
-            _uiState.update { it.copy(notificationAskDismissed = prefs.getBoolean(PrefsKeys.NOTIFICATION_ASK_DISMISSED, false)) }
+            _uiState.update {
+                it.copy(
+                    notificationAskDismissed = prefs.getBoolean(PrefsKeys.NOTIFICATION_ASK_DISMISSED, false),
+                    notificationAccessSkipped = prefs.getBoolean(PrefsKeys.NOTIFICATION_ACCESS_SKIPPED, false),
+                )
+            }
         }
 
         override fun checkPermissions() {
@@ -511,6 +527,24 @@ class HabitViewModel
                 feedbackRepository.saveCheckIn(option.key, promptedAt, labelContextCapture.captureJson())
                 com.habitminer.proactive.Notifier.cancelCheckIn(getApplication())
             }
+            offerTileOnce()
+        }
+
+        /** After the first check-in answered in the app, offer the "Log activity" Quick Settings tile once. */
+        private fun offerTileOnce() {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+            val app = getApplication<Application>()
+            val prefs = app.getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+            if (prefs.getBoolean(PrefsKeys.TILE_OFFERED, false)) return
+            prefs.edit().putBoolean(PrefsKeys.TILE_OFFERED, true).apply()
+            runCatching {
+                app.getSystemService(android.app.StatusBarManager::class.java)?.requestAddTileService(
+                    android.content.ComponentName(app, com.habitminer.ui.LogActivityTileService::class.java),
+                    "Log activity",
+                    android.graphics.drawable.Icon.createWithResource(app, com.habitminer.R.drawable.ic_stat_habitminer),
+                    app.mainExecutor,
+                ) { }
+            }
         }
 
         override fun answerMood(
@@ -547,6 +581,65 @@ class HabitViewModel
             // Turning a topic or insights off changes today's pick.
             analysisRepository.invalidate()
             insightsRefresh.tryEmit(Unit)
+        }
+
+        // ---- Recording: pause, break, sources --------------------------------------------
+
+        /** Pause recording until [untilMs], or until resumed when null. */
+        fun pauseRecording(untilMs: Long?) {
+            viewModelScope.launch(Dispatchers.IO) { recordingControl.pause(untilMs) }
+        }
+
+        fun resumeRecording() {
+            viewModelScope.launch(Dispatchers.IO) { recordingControl.resume() }
+        }
+
+        /** A break of [days] days from today: no notifications, and the days don't count as usual. */
+        fun startBreak(days: Int) {
+            val today = java.time.LocalDate.now()
+            val until = today.plusDays((days - 1).toLong())
+            recordingControl.startBreak(today, until)
+            viewModelScope.launch(Dispatchers.IO) {
+                feedbackRepository.savePeriodLabel("period|$today", com.habitminer.analytics.PeriodOption.HOLIDAY.key, today, until)
+                analysisRepository.invalidate()
+                insightsRefresh.tryEmit(Unit)
+            }
+        }
+
+        fun endBreak() {
+            val today = java.time.LocalDate.now()
+            val from = _uiState.value.recording.breakFrom
+            recordingControl.endBreak(today)
+            viewModelScope.launch(Dispatchers.IO) {
+                if (from != null) feedbackRepository.extendPeriod("period|$from", from, maxOf(from, today.minusDays(1)))
+                analysisRepository.invalidate()
+                insightsRefresh.tryEmit(Unit)
+                loadWelcomeBack()
+            }
+        }
+
+        fun setSources(change: (com.habitminer.collection.RecordingState) -> com.habitminer.collection.RecordingState) = recordingControl.setSources(change)
+
+        private suspend fun loadWelcomeBack() {
+            val zone = java.time.ZoneId.systemDefault()
+            val today = java.time.LocalDate.now(zone)
+            val (from, until) = recordingControl.pendingWelcomeBack(today) ?: return
+            val since = com.habitminer.analytics.TimeUtil.startOfDay(from.minusDays(14), zone)
+            val sessions = contextRepository.getUsageSince(since).filterNot { appIdentityResolver.isLauncher(it.packageName) }.map(AnalyticsMappers::session)
+            val unlocks = contextRepository.unlockTimesSince(since)
+            val summary = com.habitminer.analytics.BreakSummary.compute(sessions, unlocks, from, until, zone)
+            _uiState.update { it.copy(welcomeBack = summary) }
+        }
+
+        override fun dismissWelcomeBack() {
+            recordingControl.welcomeBackShown()
+            _uiState.update { it.copy(welcomeBack = null) }
+        }
+
+        fun skipNotificationAccess() {
+            getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(PrefsKeys.NOTIFICATION_ACCESS_SKIPPED, true).apply()
+            _uiState.update { it.copy(notificationAccessSkipped = true) }
         }
 
         override fun dismissNotificationAsk() {

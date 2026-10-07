@@ -65,4 +65,6 @@ interface HabitActions {
 
     /** "Not now" on the notification permission card. */
     fun dismissNotificationAsk() = Unit
+
+    fun dismissWelcomeBack() = Unit
 }

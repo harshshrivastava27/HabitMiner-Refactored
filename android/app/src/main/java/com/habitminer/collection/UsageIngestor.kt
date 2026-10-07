@@ -87,6 +87,16 @@ class UsageIngestor
                 }
             }
 
+        /** Moves the cursor to [time] without reading, so the log before it (a pause) is skipped. */
+        suspend fun skipTo(time: Long) =
+            mutex.withLock {
+                prefs.edit()
+                    .putLong(KEY_CURSOR, time)
+                    .putLong(KEY_EVENT_CURSOR, time)
+                    .putLong(KEY_OPEN_SINCE, -1L)
+                    .apply()
+            }
+
         /** Forget the cursor (after clearing data), so the next read starts over. */
         fun reset() {
             prefs.edit().clear().apply()

@@ -3,4 +3,12 @@
     <!-- Shorter name under the launcher icon; the full name gets cut off on most home screens. -->
     <string name="launcher_label">HM Extended</string>
     <string name="import_label">Import into HM Extended</string>
+    <string name="widget_today">Today</string>
+    <string name="widget_today_description">Phone time today against your usual, pickups and the insight of the day</string>
+    <string name="tile_log">Log activity</string>
+    <string name="shortcut_today">Today</string>
+    <string name="shortcut_log">Log activity</string>
+    <string name="shortcut_log_long">Log what you\'re doing</string>
+    <string name="shortcut_story">Weekly Story</string>
+    <string name="shortcut_sleep">Sleep</string>
 </resources>
