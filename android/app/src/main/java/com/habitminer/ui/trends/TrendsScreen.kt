@@ -335,11 +335,11 @@ private fun LazyListScope.routines(state: HabitUiState) {
             "How predictable is your next app?",
             info =
                 "Tested on your recent app switches: before each switch HabitMiner guesses, then learns from what you opened. " +
-                    "It weighs what usually follows your current app, your last two apps, the hour of day and apps used in the last hour, " +
-                    "and favours recent days.",
+                    "It weighs what usually follows your current app, your last two apps, the hour of day, apps used in the last hour " +
+                    "and apps that just notified you, and favours recent days.",
         )
     }
-    item(key = "predict") { PredictabilitySection(insights.predictability) }
+    item(key = "predict") { PredictabilitySection(insights.predictability, insights.predictionDriftAt) }
     if (insights.recentGuesses.isNotEmpty()) {
         item(key = "guesses-header") {
             val hits = insights.recentGuesses.count { it.hit }
@@ -364,7 +364,10 @@ private fun LazyListScope.routines(state: HabitUiState) {
 }
 
 @Composable
-private fun PredictabilitySection(result: PredictabilityResult?) {
+private fun PredictabilitySection(
+    result: PredictabilityResult?,
+    driftAt: Long?,
+) {
     if (result == null) {
         Note("Needs a few more days of app switches to measure.")
         return
@@ -375,16 +378,46 @@ private fun PredictabilitySection(result: PredictabilityResult?) {
         Spacer(Modifier.width(10.dp))
         Text("right first time", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
     }
-    ScoreLine("Right within its top 3", result.top3HitRate, colors.screen.copy(alpha = 0.7f))
-    ScoreLine("Always guessing your most-used app", result.mostUsedBaseline, colors.usual.copy(alpha = 0.5f))
+    ScoreLine("Right within its top 3", result.top3HitRate, colors.screen.copy(alpha = 0.75f))
+    if (result.top5HitRate > 0f) ScoreLine("Right within its top 5", result.top5HitRate, colors.screen.copy(alpha = 0.5f))
+    val notified = result.notificationHitRate
+    val self = result.selfStartedHitRate
+    if (notified != null && self != null && result.notificationSwitches >= 5) {
+        Spacer(Modifier.height(8.dp))
+        SubHeading("Right first time, by how you got there")
+        ScoreLine("The app had just notified you (${result.notificationSwitches})", notified, colors.pickups)
+        ScoreLine("You opened it yourself (${result.testedTransitions - result.notificationSwitches})", self, colors.screen.copy(alpha = 0.75f))
+    }
+    Spacer(Modifier.height(8.dp))
+    SubHeading("Simpler ways to guess, for comparison")
+    if (result.markovBaseline > 0f) ScoreLine("What most often follows this app", result.markovBaseline, colors.usual.copy(alpha = 0.6f))
+    if (result.recentBaseline > 0f) ScoreLine("Going back to the app before", result.recentBaseline, colors.usual.copy(alpha = 0.5f))
+    ScoreLine("Always your most-used app", result.mostUsedBaseline, colors.usual.copy(alpha = 0.4f))
     ScoreLine("Random guess", result.randomBaseline, colors.usual.copy(alpha = 0.3f))
-    val lift = result.hitRate - result.mostUsedBaseline
+    val best = maxOf(result.mostUsedBaseline, result.markovBaseline, result.recentBaseline)
+    val lift = result.hitRate - best
     Note(
         when {
-            lift >= 0.1f -> "Your app switching follows clear routines. Tested on ${result.testedTransitions} switches from the last ${result.testDays} days."
-            lift > 0.02f -> "Your app switching is somewhat routine. Tested on ${result.testedTransitions} switches from the last ${result.testDays} days."
-            else -> "Your app switching varies a lot, which is normal. Tested on ${result.testedTransitions} switches."
-        },
+            lift >= 0.08f -> "Your app switching follows clear routines. "
+            lift > 0.02f -> "Your app switching is somewhat routine. "
+            else -> "Your app switching varies a lot, which is normal. "
+        } + "Tested on ${result.testedTransitions} switches from the last ${result.testDays} days.",
+    )
+    if (driftAt != null) {
+        Note(
+            "Its accuracy shifted around ${Labels.shortDate(driftAt)}, which usually means a routine changed. " +
+                "It gives recent days more weight, so it catches up within a day or two.",
+        )
+    }
+}
+
+@Composable
+private fun SubHeading(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = ScreenPadding, end = ScreenPadding, top = 8.dp, bottom = 2.dp),
     )
 }
 

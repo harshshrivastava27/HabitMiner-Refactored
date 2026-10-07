@@ -15,6 +15,19 @@ data class PredictabilityResult(
     val randomBaseline: Float,
     val testedTransitions: Int,
     val testDays: Int,
+    /** Right within the top 5 guesses. */
+    val top5HitRate: Float = 0f,
+    /** Mean reciprocal rank: 1 when always first, 0.5 when always second, … */
+    val meanReciprocalRank: Float = 0f,
+    /** Always guessing what most often followed the current app (no weighting by recency). */
+    val markovBaseline: Float = 0f,
+    /** Always guessing the app used just before the current one. */
+    val recentBaseline: Float = 0f,
+    /** Switches into an app right after it posted a notification. */
+    val notificationSwitches: Int = 0,
+    val notificationHitRate: Float? = null,
+    /** Accuracy on switches you started yourself (no notification from the opened app). */
+    val selfStartedHitRate: Float? = null,
 )
 
 object PredictabilityEvaluator {

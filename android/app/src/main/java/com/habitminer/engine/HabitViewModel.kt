@@ -602,6 +602,14 @@ class HabitViewModel
                         val today = java.time.LocalDate.now(zone)
                         var daily: List<Pair<java.time.LocalDate, Long>> = emptyList()
                         var apps: List<com.habitminer.analytics.AppSummary> = emptyList()
+                        val nowMs = System.currentTimeMillis()
+                        val notes =
+                            withContext(Dispatchers.IO) {
+                                contextRepository.getDeviceEventsSince(
+                                    com.habitminer.collection.DeviceEvents.NOTIFICATION,
+                                    nowMs - com.habitminer.analytics.NextAppModel.NOTIFIED_WINDOW_MS,
+                                ).mapNotNull { e -> e.packageName?.let { com.habitminer.analytics.NotificationEvent(e.timestamp, it) } }
+                            }
                         val (after, guesses) =
                             withContext(Dispatchers.Default) {
                                 val sessions =
@@ -610,7 +618,7 @@ class HabitViewModel
                                 daily = com.habitminer.analytics.UsageSummaries.daily(sessions, 14, today, zone)
                                 apps = com.habitminer.analytics.UsageSummaries.apps(sessions, today, zone)
                                 com.habitminer.analytics.NextAppModel.currentApp(sessions) to
-                                    com.habitminer.analytics.NextAppModel.predict(sessions, System.currentTimeMillis(), zone)
+                                    com.habitminer.analytics.NextAppModel.predict(sessions, nowMs, zone, notifications = notes)
                             }
                         val days =
                             withContext(Dispatchers.IO) {

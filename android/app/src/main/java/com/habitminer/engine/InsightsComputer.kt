@@ -13,6 +13,7 @@ import com.habitminer.analytics.GuessRecord
 import com.habitminer.analytics.LabelledPeriod
 import com.habitminer.analytics.NapCandidate
 import com.habitminer.analytics.NextAppModel
+import com.habitminer.analytics.NotificationEvent
 import com.habitminer.analytics.Heatmap
 import com.habitminer.analytics.HeatmapData
 import com.habitminer.analytics.PatternGroup
@@ -79,6 +80,10 @@ data class InsightsBundle(
     val periods: List<LabelledPeriod> = emptyList(),
     /** What the next-app model guessed before your latest app switches, newest first. */
     val recentGuesses: List<GuessRecord> = emptyList(),
+    /** Every switch in the test window with the model's guesses, oldest first (for export). */
+    val testedGuesses: List<GuessRecord> = emptyList(),
+    /** When guessing accuracy shifted sharply, a sign your routine changed. */
+    val predictionDriftAt: Long? = null,
     /** Night + confirmed naps for each of the last 7 days (by the day you woke up), oldest first. */
     val sleepDays: List<DailySleep> = emptyList(),
     val sleepWeek: SleepWeek? = null,
@@ -121,9 +126,13 @@ class InsightsComputer
 
             val eventHorizon = now - 8 * TimeUtil.DAY
             val unlocks = contextRepository.unlockTimesSince(eventHorizon)
+            // Notifications over the whole window: the next-app model learns how often you open
+            // an app right after it notifies you.
+            val notificationEvents =
+                contextRepository.getDeviceEventsSince(DeviceEventReceiver.EVENT_NOTIFICATION, horizon)
+                    .mapNotNull { e -> e.packageName?.let { NotificationEvent(e.timestamp, it) } }
             val notifications =
-                contextRepository.getDeviceEventsSince(DeviceEventReceiver.EVENT_NOTIFICATION, todayStart)
-                    .map { TimedEvent(it.timestamp, it.packageName) }
+                notificationEvents.filter { it.time >= todayStart }.map { TimedEvent(it.time, it.packageName) }
 
             // Same rule as the headline screen-time number: sessions that started today.
             val todaySessions = sessions.filter { it.start >= todayStart }
@@ -135,7 +144,7 @@ class InsightsComputer
             val nights = routine.nights.takeLast(7)
             val excluded =
                 routine.periods.flatMap { p -> generateSequence(p.from) { it.plusDays(1) }.takeWhile { !it.isAfter(p.to) }.toList() }.toSet()
-            val guesses = NextAppModel.evaluate(sessions, now, zone)
+            val guesses = NextAppModel.evaluate(sessions, now, zone, notifications = notificationEvents)
             val sleepDays = SleepDays.build(routine.nights, routine.confirmedNaps, today, 7, zone)
 
             val pickups =
@@ -175,6 +184,8 @@ class InsightsComputer
                 answers = routine.answers,
                 periods = routine.periods,
                 recentGuesses = guesses.recent,
+                testedGuesses = guesses.tested,
+                predictionDriftAt = guesses.driftAt,
                 sleepDays = sleepDays,
                 sleepWeek = SleepDays.summarize(sleepDays, zone),
             )

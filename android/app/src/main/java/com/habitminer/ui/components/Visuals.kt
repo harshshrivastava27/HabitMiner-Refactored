@@ -331,16 +331,16 @@ fun DayTimelineStrip(
     data: DayTimelineData,
     modifier: Modifier = Modifier,
 ) {
-    val data = com.habitminer.ui.theme.LocalDataColors.current
-    val track = data.track
+    val palette = com.habitminer.ui.theme.LocalDataColors.current
+    val track = palette.track
     // Sleep gets its own lane so it can't be confused with an app colour or "dark".
-    val sleepColor = data.sleep
+    val sleepColor = palette.sleep
     val darkColor = Color(0xFF3B4199)
     val dimColor = Color(0xFFC08A2E)
     val brightColor = Color(0xFFE8C547)
-    val movingColor = data.good
-    val chargeColor = data.pickups
-    val unknownColor = data.usual.copy(alpha = 0.25f)
+    val movingColor = palette.good
+    val chargeColor = palette.pickups
+    val unknownColor = palette.usual.copy(alpha = 0.25f)
 
     Column(modifier = modifier.fillMaxWidth()) {
         Canvas(
