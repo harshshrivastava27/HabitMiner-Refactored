@@ -476,6 +476,32 @@ class MoodPatternsTest {
     }
 }
 
+class PowerModelTest {
+    private val power = PowerModel.SensorPower(accelerometer = 0.2, gyroscope = 6.0, light = 0.1, proximity = 0.1, stepCounter = 0.05)
+
+    @Test
+    fun `daily use adds up deltas, survives a counter reset and gives a share of the battery`() {
+        val t0 = at(d(3), 1)
+        val samples =
+            listOf(
+                PowerModel.Sample(t0, cpuMs = 10_000, wakelockMs = 60_000, sensorMs = 0, radioMams = 0, batteryLevel = 80, chargeCounterUah = 4_000_000),
+                PowerModel.Sample(t0 + 30 * MIN, cpuMs = 46_000, wakelockMs = 120_000, sensorMs = 0, radioMams = 0, batteryLevel = 79, chargeCounterUah = 3_950_000),
+                // Reboot: totals start again from zero.
+                PowerModel.Sample(t0 + 60 * MIN, cpuMs = 36_000, wakelockMs = 60_000, sensorMs = 0, radioMams = 0, batteryLevel = 78, chargeCounterUah = 3_900_000),
+            )
+        val readings = listOf(PowerModel.Reading(t0 + 10 * MIN, 3_600_000, gyro = false), PowerModel.Reading(t0 + 40 * MIN, 0, gyro = true))
+        val day = PowerModel.daily(samples, readings, power, listOf(d(3)), ZONE).single()
+        assertEquals(72_000L, day.cpuMs)
+        assertEquals(120_000L, day.wakelockMs)
+        assertEquals(0.4 + 0.05, day.sensorMah, 1e-9)
+        assertEquals(72_000 / 3_600_000.0 * PowerModel.CPU_MA, day.cpuMah, 1e-9)
+        // 3.9 Ah at 78% means a 5000 mAh battery.
+        assertEquals(5000.0, PowerModel.capacityMah(samples)!!, 1e-6)
+        assertEquals(day.totalMah / 5000.0 * 100, day.sharePct!!, 1e-9)
+        assertFalse(day.excessiveWakelocks)
+    }
+}
+
 class PickupAnalyzerTest {
     @Test
     fun `classifies pickups after notifications`() {

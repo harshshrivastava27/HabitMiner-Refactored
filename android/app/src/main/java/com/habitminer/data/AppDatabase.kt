@@ -18,6 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UserLabelEntity::class,
         PlaceEntity::class,
         InsightLogEntity::class,
+        SelfHealthEntity::class,
     ],
     version = 10,
     exportSchema = true,
@@ -40,6 +41,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun placeDao(): PlaceDao
 
     abstract fun insightLogDao(): InsightLogDao
+
+    abstract fun selfHealthDao(): SelfHealthDao
 
     abstract fun batchDao(): BatchDao
 
@@ -213,7 +216,7 @@ abstract class AppDatabase : RoomDatabase() {
         /**
          * v10 (Extended): a detail per device event (alarm time, Do Not Disturb mode, why a
          * notification went away…), battery temperature, battery saver and thermal status per
-         * reading, and the insight log.
+         * reading, the insight log, and HabitMiner's own resource use.
          */
         internal val MIGRATION_9_10 =
             object : Migration(9, 10) {
@@ -230,6 +233,14 @@ abstract class AppDatabase : RoomDatabase() {
                             "`probability` REAL NOT NULL, `notifiedAt` INTEGER, `feedback` TEXT, `feedbackAt` INTEGER, `openedAt` INTEGER)",
                     )
                     database.execSQL("CREATE INDEX IF NOT EXISTS `index_insight_log_date` ON `insight_log` (`date`)")
+                    database.execSQL(
+                        "CREATE TABLE IF NOT EXISTS `self_health` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "`timestamp` INTEGER NOT NULL, `cpuUserMs` INTEGER NOT NULL, `cpuSystemMs` INTEGER NOT NULL, " +
+                            "`wakelockMs` INTEGER NOT NULL, `sensorMs` INTEGER NOT NULL, `mobileMams` INTEGER NOT NULL, " +
+                            "`wifiMams` INTEGER NOT NULL, `bluetoothMams` INTEGER NOT NULL, `batteryLevel` INTEGER NOT NULL, " +
+                            "`chargeCounterUah` INTEGER)",
+                    )
+                    database.execSQL("CREATE INDEX IF NOT EXISTS `index_self_health_timestamp` ON `self_health` (`timestamp`)")
                 }
             }
 

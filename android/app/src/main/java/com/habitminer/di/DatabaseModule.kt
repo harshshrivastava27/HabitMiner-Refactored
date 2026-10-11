@@ -57,4 +57,7 @@ object DatabaseModule {
 
     @Provides
     fun provideInsightLogDao(database: AppDatabase): com.habitminer.data.InsightLogDao = database.insightLogDao()
+
+    @Provides
+    fun provideSelfHealthDao(database: AppDatabase): com.habitminer.data.SelfHealthDao = database.selfHealthDao()
 }

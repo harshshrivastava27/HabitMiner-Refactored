@@ -189,6 +189,7 @@ fun StatusScreen(
                 row { ListRow("Readings today", trailingText = "${state.todaySnapshots.size}") }
             }
         }
+        item(key = "battery") { BatteryUse(state.selfHealth) }
 
         item(key = "sensors-header") { SectionHeader("Sensors") }
         item(key = "sensors") {
@@ -340,3 +341,54 @@ private fun formatSeconds(ms: Long): String =
         ms < 60_000L -> "${ms / 1000} s"
         else -> Format.duration(ms) + " ${(ms / 1000) % 60} s"
     }
+
+/** HabitMiner's own battery use: an estimate from its sensor, processor and wake-lock time. */
+@Composable
+private fun BatteryUse(week: List<com.habitminer.analytics.PowerModel.DayUse>) {
+    val today = week.lastOrNull() ?: return
+    val colors = LocalDataColors.current
+    val awakeMin = today.wakelockMs / 60_000
+    val limitMin = com.habitminer.analytics.PowerModel.WAKELOCK_LIMIT_MS / 60_000
+    val share = today.sharePct
+    SectionHeader(
+        "Its own battery use",
+        info =
+            "An estimate, worked out the way Android's battery screen does it: how long the sensors and processor ran, times the current they draw. " +
+                "Android flags an app that keeps the phone awake for 2 hours or more in a day.",
+    )
+    RowGroup {
+        row {
+            ListRow(
+                "Battery used today",
+                supporting =
+                    if (share != null) {
+                        "Sensors %.0f mAh, processor %.0f mAh, awake %.0f mAh".format(today.sensorMah, today.cpuMah, today.awakeMah)
+                    } else {
+                        "Your phone doesn't report its battery size, so only mAh is shown"
+                    },
+                trailingText = if (share != null) "about %.1f%%".format(share) else "%.0f mAh".format(today.totalMah),
+            )
+        }
+        row {
+            ListRow(
+                "Kept your phone awake",
+                supporting = "Android's line is $limitMin min a day",
+                trailingText = if (awakeMin < 1) "under 1 min" else "$awakeMin min",
+                trailing =
+                    if (today.excessiveWakelocks) {
+                        { StatusDot(colors.alert) }
+                    } else {
+                        null
+                    },
+            )
+        }
+        row {
+            val avg = week.filter { it.wakelockMs > 0 }.map { it.wakelockMs / 60_000.0 }.average()
+            ListRow(
+                "Awake time, 7 days",
+                supporting = week.joinToString("  ") { "%d".format(it.wakelockMs / 60_000) } + " min",
+                trailingText = if (avg.isNaN()) "" else "avg %.0f min".format(avg),
+            )
+        }
+    }
+}

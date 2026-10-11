@@ -140,6 +140,8 @@ data class HabitUiState(
     val recording: com.habitminer.collection.RecordingState = com.habitminer.collection.RecordingState(),
     /** After a break: how it went, until dismissed. */
     val welcomeBack: com.habitminer.analytics.BreakSummary? = null,
+    /** HabitMiner's own battery use for the last 7 days, today last (empty until there are samples). */
+    val selfHealth: ImmutableList<com.habitminer.analytics.PowerModel.DayUse> = persistentListOf(),
     /** Screen time per day for the last 14 days, oldest first. */
     val dailyTotals: ImmutableList<Pair<java.time.LocalDate, Long>> = persistentListOf(),
     /** Every app used in the last five weeks, most used this week first. */
@@ -172,6 +174,7 @@ class HabitViewModel
         private val calendarBusy: com.habitminer.sources.CalendarBusy,
         private val insightRepository: com.habitminer.repository.InsightRepository,
         private val recordingControl: com.habitminer.collection.RecordingControl,
+        private val selfHealthRecorder: com.habitminer.collection.SelfHealthRecorder,
     ) : AndroidViewModel(application), HabitActions {
         private val _uiState = MutableStateFlow(HabitUiState(selectedHistoryDate = getStartOfDay()))
         val uiState: StateFlow<HabitUiState> = _uiState.asStateFlow()
@@ -365,6 +368,7 @@ class HabitViewModel
                 habitRepository.clearModelData()
                 feedbackRepository.clearAll()
                 insightRepository.clearAll()
+                selfHealthRecorder.clearAll()
                 usageIngestor.reset()
                 analysisRepository.invalidate()
                 val application = getApplication<Application>()
@@ -581,6 +585,31 @@ class HabitViewModel
             // Turning a topic or insights off changes today's pick.
             analysisRepository.invalidate()
             insightsRefresh.tryEmit(Unit)
+        }
+
+        /** Seven days of HabitMiner's own battery use, from self-health samples and readings. */
+        private suspend fun selfHealthWeek(): List<com.habitminer.analytics.PowerModel.DayUse> {
+            val zone = java.time.ZoneId.systemDefault()
+            val today = java.time.LocalDate.now(zone)
+            val since = com.habitminer.analytics.TimeUtil.startOfDay(today.minusDays(7), zone)
+            val samples =
+                selfHealthRecorder.samplesSince(since - 60 * 60_000L).map {
+                    com.habitminer.analytics.PowerModel.Sample(
+                        time = it.timestamp,
+                        cpuMs = it.cpuUserMs + it.cpuSystemMs,
+                        wakelockMs = it.wakelockMs,
+                        sensorMs = it.sensorMs,
+                        radioMams = it.mobileMams + it.wifiMams + it.bluetoothMams,
+                        batteryLevel = it.batteryLevel,
+                        chargeCounterUah = it.chargeCounterUah,
+                    )
+                }
+            if (samples.size < 2) return emptyList()
+            val readings =
+                contextRepository.getSnapshotsSince(since).filter { it.sensingMs > 0 }
+                    .map { com.habitminer.analytics.PowerModel.Reading(it.timestamp, it.sensingMs, gyro = it.gyroEnergy > 0f) }
+            val days = (6L downTo 0L).map { today.minusDays(it) }
+            return com.habitminer.analytics.PowerModel.daily(samples, readings, selfHealthRecorder.sensorPower(), days, zone)
         }
 
         // ---- Recording: pause, break, sources --------------------------------------------
@@ -989,6 +1018,14 @@ class HabitViewModel
                 launch {
                     feedbackRepository.getPlaces().collect { places ->
                         _uiState.update { it.copy(places = places.toImmutableList()) }
+                    }
+                }
+
+                // HabitMiner's own battery use, last 7 days (today last).
+                launch {
+                    fiveMinutes.collect {
+                        val week = withContext(Dispatchers.IO) { runCatching { selfHealthWeek() }.getOrDefault(emptyList()) }
+                        _uiState.update { it.copy(selfHealth = week.toImmutableList()) }
                     }
                 }
 

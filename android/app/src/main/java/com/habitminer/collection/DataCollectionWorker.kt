@@ -37,6 +37,7 @@ class DataCollectionWorker
         private val feedbackRepository: com.habitminer.repository.FeedbackRepository,
         private val proactiveEngine: com.habitminer.proactive.ProactiveEngine,
         private val insightRepository: com.habitminer.repository.InsightRepository,
+        private val selfHealthRecorder: SelfHealthRecorder,
     ) : CoroutineWorker(appContext, workerParams) {
         override suspend fun doWork(): Result =
             workerMutex.withLock {
@@ -80,6 +81,7 @@ class DataCollectionWorker
             habitRepository.clearOldData(cutoff)
             feedbackRepository.clearOldData(cutoff)
             insightRepository.clearOldData(cutoff)
+            selfHealthRecorder.prune(cutoff)
             preferences.edit().putString(PrefsKeys.LAST_PRUNE_DAY, today).apply()
         }
 

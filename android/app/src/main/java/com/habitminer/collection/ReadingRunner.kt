@@ -35,6 +35,7 @@ class ReadingRunner
         private val usageIngestor: UsageIngestor,
         private val widgetUpdater: com.habitminer.widget.WidgetUpdater,
         private val recordingControl: RecordingControl,
+        private val selfHealthRecorder: SelfHealthRecorder,
     ) {
         /**
          * Why a reading is taken. Scheduled readings run every 5–30 minutes; unlocking the
@@ -123,7 +124,8 @@ class ReadingRunner
                 if (place != null) feedbackRepository.recordPlaceSeen(place, snapshot.timestamp)
                 true
             }
-            // The home-screen widget, if placed (at most every 5 minutes).
+            // HabitMiner's own battery use (at most every 10 minutes), then the home-screen widget.
+            runCatching { selfHealthRecorder.snapshot() }
             runCatching { widgetUpdater.refresh() }
             return stored
         }
