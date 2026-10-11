@@ -189,6 +189,20 @@ fun SettingsScreen(
             RowGroup {
                 row { ListRow("Export data", supporting = "A ZIP of CSV files to share or analyse", onClick = { viewModel.exportDataToCsv() }) }
                 row {
+                    val ctx = LocalContext.current
+                    val prefs = remember { ctx.getSharedPreferences(com.habitminer.data.PrefsKeys.PREFS_NAME, android.content.Context.MODE_PRIVATE) }
+                    var priv by remember { mutableStateOf(prefs.getBoolean(com.habitminer.data.PrefsKeys.EXPORT_PRIVATE, false)) }
+                    ToggleRow(
+                        "Hide app names in exports",
+                        "Apps become short codes, and place names and text are left out. Good for sharing with others.",
+                        priv,
+                        onChange = {
+                            priv = it
+                            prefs.edit().putBoolean(com.habitminer.data.PrefsKeys.EXPORT_PRIVATE, it).apply()
+                        },
+                    )
+                }
+                row {
                     ListRow(
                         "Import an export",
                         supporting = "From this app or the original HabitMiner",

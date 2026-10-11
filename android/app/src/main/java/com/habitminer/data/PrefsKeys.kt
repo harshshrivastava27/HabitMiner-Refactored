@@ -87,4 +87,6 @@ object PrefsKeys {
 
     /** Prefix for the last stored detail of a state event type (DND, next alarm, time zone). */
     const val LAST_EVENT_PREFIX = "last_event_"
+    /** Export hides app names: packages become short salted hashes, and place names are left out. */
+    const val EXPORT_PRIVATE = "export_private"
 }
