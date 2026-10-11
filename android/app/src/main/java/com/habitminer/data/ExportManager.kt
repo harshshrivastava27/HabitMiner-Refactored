@@ -40,6 +40,15 @@ class ExportManager
             return "app_" + h.take(5).joinToString("") { "%02x".format(it) }
         }
 
+        /**
+         * Session IDs are a plain hash of package + start time, so with the start time in the same
+         * row anyone could recover the package by trying app names. Private exports re-key them.
+         */
+        private fun rowId(id: Long): Long {
+            val h = java.security.MessageDigest.getInstance("SHA-256").digest((salt() + "row" + id).toByteArray())
+            return h.take(8).fold(0L) { acc, b -> (acc shl 8) or (b.toLong() and 0xff) } and Long.MAX_VALUE
+        }
+
         suspend fun exportDataToCsv(): String? {
             try {
                 val priv = prefs.getBoolean(PrefsKeys.EXPORT_PRIVATE, false)
@@ -62,7 +71,7 @@ class ExportManager
                     writer.append("durationMs,timeSlot,dayType,previousPackageName,isHistorical\n")
                     usages.forEach {
                         writer.append(
-                            "${it.id},${escapeCsv(pkg(it.packageName, priv))},${escapeCsv(if (priv) "" else it.appName)},${escapeCsv(it.appCategory)},${it.startTime},",
+                            "${if (priv) rowId(it.id) else it.id},${escapeCsv(pkg(it.packageName, priv))},${escapeCsv(if (priv) "" else it.appName)},${escapeCsv(it.appCategory)},${it.startTime},",
                         )
                         writer.append("${it.endTime},${it.durationMs},${it.timeSlot},${it.dayType},")
                         writer.append("${escapeCsv(pkg(it.previousPackageName, priv))},${it.isHistorical}\n")
@@ -186,7 +195,7 @@ class ExportManager
                     writer.append("timestamp,date,family,key,effect,score,pickChance,notifiedAt,openedAt,feedback")
                     writer.append(if (priv) "\n" else ",title,body,why\n")
                     insightRepository.all().forEach {
-                        writer.append("${it.timestamp},${it.date},${escapeCsv(it.family)},${escapeCsv(it.key)},${it.effect},${it.score},")
+                        writer.append("${it.timestamp},${it.date},${escapeCsv(it.family)},${escapeCsv(if (priv) "" else it.key)},${it.effect},${it.score},")
                         writer.append("${it.probability},${it.notifiedAt ?: ""},${it.openedAt ?: ""},${escapeCsv(it.feedback ?: "")}")
                         writer.append(if (priv) "\n" else ",${escapeCsv(it.title)},${escapeCsv(it.body)},${escapeCsv(it.why)}\n")
                     }
@@ -271,7 +280,8 @@ class ExportManager
                 if (priv) {
                     appendLine()
                     appendLine("Privacy-safe export: package names are replaced by app_<hash> (salted, stable on this phone), and app names,")
-                    appendLine("place names, routine descriptions, insight text and free-text label details are left out. App categories are kept.")
+                    appendLine("session IDs are re-keyed, and place names, routine descriptions, insight text and keys, and typed check-in notes are left out.")
+                    appendLine("App categories are kept.")
                 }
             }
 

@@ -190,6 +190,7 @@ fun SettingsScreen(
                                 state.update != null -> "${state.update.versionName} is available, see Today"
                                 state.updateCheckResult == "checking" -> "Checking…"
                                 state.updateCheckResult == "latest" -> "You're up to date"
+                                state.updateCheckResult == "offline" -> "Couldn't reach GitHub. Try again later"
                                 else -> "Check now"
                             },
                         onClick = { viewModel.checkForUpdates() },

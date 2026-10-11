@@ -126,7 +126,10 @@ class UpdateInstaller
             val installed = pm.getPackageInfo(context.packageName, flags)
             val a = signers(archive)
             val b = signers(installed)
-            if (a.isEmpty() || a != b) return "It's signed with a different key than the installed app, so Android wouldn't accept it."
+            if (a.isEmpty() || a != b) {
+                return "This version is signed with a different key than the one installed (test builds use a shared key). " +
+                    "To switch: export your data in Settings, uninstall, install the release from GitHub, then import."
+            }
             return null
         }
 

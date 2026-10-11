@@ -37,7 +37,7 @@ object UpdateLogic {
         val u = runCatching { java.net.URI(url) }.getOrNull() ?: return false
         if (u.scheme != "https") return false
         val host = u.host?.lowercase() ?: return false
-        if (host == "github.com") return u.path.startsWith("/$repo/releases/download/")
+        if (host == "github.com") return u.path.lowercase().startsWith("/${repo.lowercase()}/releases/download/")
         return host == "objects.githubusercontent.com" || host == "release-assets.githubusercontent.com"
     }
 

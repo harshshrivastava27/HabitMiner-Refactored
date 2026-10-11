@@ -696,7 +696,17 @@ class HabitViewModel
             _uiState.update { it.copy(updateCheckResult = "checking") }
             viewModelScope.launch {
                 val found = withContext(Dispatchers.IO) { runCatching { updateChecker.check(force = true) }.getOrNull() }
-                _uiState.update { it.copy(update = found, updateCheckResult = if (found != null) null else "latest") }
+                _uiState.update {
+                    it.copy(
+                        update = found,
+                        updateCheckResult =
+                            when {
+                                found != null -> null
+                                updateChecker.lastCheckFailed -> "offline"
+                                else -> "latest"
+                            },
+                    )
+                }
             }
         }
 

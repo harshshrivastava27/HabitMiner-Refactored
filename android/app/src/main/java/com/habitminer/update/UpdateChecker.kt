@@ -52,6 +52,10 @@ class UpdateChecker
             prefs.edit().putString(PrefsKeys.UPDATE_SKIPPED, tag).apply()
         }
 
+        /** How the last network check went: true when GitHub couldn't be reached or asked us to wait. */
+        @Volatile var lastCheckFailed: Boolean = false
+            private set
+
         /** Checks if a day has passed (or [force]); returns the pending update after the check. */
         suspend fun check(force: Boolean = false): ReleaseInfo? {
             if (!enabled && !force) return null
@@ -60,7 +64,11 @@ class UpdateChecker
             val notBefore = prefs.getLong(PrefsKeys.UPDATE_NOT_BEFORE, 0L)
             // A manual check is allowed any time except while GitHub has asked us to wait.
             val allowed = if (force) now >= notBefore else UpdateLogic.due(now, last, notBefore)
-            if (!allowed) return pending()
+            if (!allowed) {
+                lastCheckFailed = force
+                return pending()
+            }
+            lastCheckFailed = false
             withContext(Dispatchers.IO) { fetch(now) }
             return pending()
         }
@@ -87,12 +95,20 @@ class UpdateChecker
                             .apply()
                     }
                     304 -> prefs.edit().putLong(PrefsKeys.UPDATE_LAST_CHECK, now).putInt(PrefsKeys.UPDATE_FAILURES, 0).apply()
-                    403, 429 -> backOff(now, conn.getHeaderField("Retry-After")?.toLongOrNull())
+                    403, 429 -> {
+                        lastCheckFailed = true
+                        backOff(now, conn.getHeaderField("Retry-After")?.toLongOrNull())
+                    }
                     404 -> prefs.edit().putLong(PrefsKeys.UPDATE_LAST_CHECK, now).apply() // no releases yet
-                    else -> backOff(now, null).also { android.util.Log.w(TAG, "Update check answered $code") }
+                    else -> {
+                        lastCheckFailed = true
+                        backOff(now, null)
+                        android.util.Log.w(TAG, "Update check answered $code")
+                    }
                 }
             } catch (e: Exception) {
                 // Offline or a bad answer: try again at the next scheduled check.
+                lastCheckFailed = true
                 android.util.Log.i(TAG, "Update check failed: ${e.javaClass.simpleName}")
             } finally {
                 conn?.disconnect()
