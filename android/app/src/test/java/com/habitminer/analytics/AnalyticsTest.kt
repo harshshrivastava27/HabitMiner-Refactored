@@ -1185,3 +1185,45 @@ class UsageSummariesTest {
         assertEquals(12, detail.busiestHour)
     }
 }
+
+class UpdateLogicTest {
+    private fun rel(tag: String) = ReleaseInfo(tag, tag.removePrefix("v"), UpdateLogic.versionCodeOf(tag)!!, "", "https://github.com/a/b/releases/download/$tag/x.apk", 1, "0".repeat(64), "")
+
+    @Test
+    fun `tags become increasing version codes and odd tags are ignored`() {
+        assertEquals(20103, UpdateLogic.versionCodeOf("v2.1.3"))
+        assertTrue(UpdateLogic.versionCodeOf("v2.10.0")!! > UpdateLogic.versionCodeOf("v2.9.9")!!)
+        assertNull(UpdateLogic.versionCodeOf("v2.1.3-rc1"))
+        assertNull(UpdateLogic.versionCodeOf("latest"))
+    }
+
+    @Test
+    fun `only this repository's GitHub downloads over https are trusted`() {
+        assertTrue(UpdateLogic.trustedDownload("https://github.com/a/b/releases/download/v1.0.0/x.apk", "a/b"))
+        assertTrue(UpdateLogic.trustedDownload("https://objects.githubusercontent.com/abc", "a/b"))
+        assertFalse(UpdateLogic.trustedDownload("http://github.com/a/b/releases/download/v1.0.0/x.apk", "a/b"))
+        assertFalse(UpdateLogic.trustedDownload("https://github.com/evil/b/releases/download/v1.0.0/x.apk", "a/b"))
+        assertFalse(UpdateLogic.trustedDownload("https://github.com.evil.com/a/b/releases/download/v1/x.apk", "a/b"))
+    }
+
+    @Test
+    fun `checks wait a day and back off after refusals`() {
+        val day = UpdateLogic.CHECK_INTERVAL_MS
+        assertFalse(UpdateLogic.due(day - 1, 0, 0))
+        assertTrue(UpdateLogic.due(day, 0, 0))
+        assertFalse(UpdateLogic.due(2 * day, 0, 3 * day))
+        assertEquals(TimeUtil.HOUR, UpdateLogic.backoffMs(1, null))
+        assertEquals(4 * TimeUtil.HOUR, UpdateLogic.backoffMs(3, null))
+        assertEquals(day, UpdateLogic.backoffMs(9, null))
+        assertEquals(2 * TimeUtil.HOUR, UpdateLogic.backoffMs(1, 7200))
+    }
+
+    @Test
+    fun `newest skips older, installed and skipped versions`() {
+        val rs = listOf(rel("v2.0.0"), rel("v2.1.0"), rel("v2.2.0"))
+        assertEquals("v2.2.0", UpdateLogic.newest(rs, 20100, null)?.tag)
+        assertEquals("v2.1.0", UpdateLogic.newest(rs.take(2), 20000, "v2.2.0")?.tag)
+        assertNull(UpdateLogic.newest(rs, 20200, null))
+        assertNull(UpdateLogic.newest(rs, 0, null)?.takeIf { false })
+    }
+}

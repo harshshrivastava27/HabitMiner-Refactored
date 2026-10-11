@@ -15,8 +15,8 @@ android {
         applicationId "com.habitminer.extended"
         minSdk 26           // Android 8.0 — required for WorkManager background execution guarantees
         targetSdk 35
-        versionCode 200
-        versionName "2.0.0-dev"
+        versionCode((project.findProperty("vcode") ?: "200").toString().toInteger())
+        versionName((project.findProperty("vname") ?: "2.0.0-dev").toString())
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -43,6 +43,20 @@ android {
         }
     }
 
+    // Releases are signed with a private key from the environment (set by the release workflow).
+    // Without it the release build falls back to the shared debug key so CI can still build it.
+    def releaseKeystore = System.getenv("RELEASE_KEYSTORE_FILE")
+    if (releaseKeystore) {
+        signingConfigs {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
@@ -54,7 +68,7 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+            signingConfig releaseKeystore ? signingConfigs.release : signingConfigs.debug
         }
     }
 

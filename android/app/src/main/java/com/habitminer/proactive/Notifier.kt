@@ -256,6 +256,19 @@ object Notifier {
         post(context, ID_INSIGHT, builder)
     }
 
+    /** "A new version is ready", silent, once per version; tapping opens the app where the update banner is. */
+    fun postUpdate(
+        context: Context,
+        versionName: String,
+    ) {
+        val builder =
+            base(context, CHANNEL_UPDATES, "A HabitMiner update")
+                .setContentTitle("HabitMiner Extended $versionName is ready")
+                .setContentText("Open the app to see what's new and install it.")
+                .setContentIntent(openApp(context, 19, null))
+        post(context, ID_UPDATE, builder)
+    }
+
     fun postDigest(
         context: Context,
         digest: DigestBuilder.Digest,

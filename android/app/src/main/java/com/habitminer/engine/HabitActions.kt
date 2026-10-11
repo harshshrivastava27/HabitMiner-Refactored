@@ -67,4 +67,14 @@ interface HabitActions {
     fun dismissNotificationAsk() = Unit
 
     fun dismissWelcomeBack() = Unit
+
+    fun downloadUpdate() = Unit
+
+    fun installUpdate() = Unit
+
+    fun skipUpdate() = Unit
+
+    fun setUpdateChecks(enabled: Boolean) = Unit
+
+    fun checkForUpdates() = Unit
 }

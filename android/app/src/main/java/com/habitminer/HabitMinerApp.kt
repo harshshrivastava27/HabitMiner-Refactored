@@ -26,6 +26,11 @@ class HabitMinerApp :
         super.onCreate()
         createNotificationChannel()
         com.habitminer.proactive.Notifier.createChannels(this)
+        com.habitminer.update.UpdateWorker.schedule(
+            this,
+            getSharedPreferences(com.habitminer.data.PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(com.habitminer.data.PrefsKeys.UPDATE_CHECK_ENABLED, true),
+        )
     }
 
     private fun createNotificationChannel() {

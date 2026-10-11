@@ -138,6 +138,12 @@ fun TodayScreen(
         state.recording.breakUntil?.takeIf { until -> state.recording.breakFrom?.let { !today.isBefore(it) } == true && !today.isAfter(until) }?.let { until ->
             item(key = "break") { BreakBanner(until, modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 12.dp)) }
         }
+        state.update?.let { update ->
+            item(key = "update") {
+                Spacer(Modifier.height(22.dp))
+                UpdatePanel(update, state.installState, actions::downloadUpdate, actions::installUpdate, actions::skipUpdate)
+            }
+        }
         state.welcomeBack?.let { summary ->
             item(key = "welcome-back") {
                 Spacer(Modifier.height(22.dp))

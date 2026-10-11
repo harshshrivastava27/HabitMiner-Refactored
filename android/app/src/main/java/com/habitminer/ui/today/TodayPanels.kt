@@ -238,3 +238,42 @@ fun BreakBanner(
         modifier = modifier,
     )
 }
+
+/** A new version is out: what's new, with download then install. Calm: no urgency, can be skipped. */
+@Composable
+fun UpdatePanel(
+    update: com.habitminer.analytics.ReleaseInfo,
+    install: com.habitminer.update.InstallState,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    HeroContainer {
+        Text("Update available", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(6.dp))
+        Text("Version ${update.versionName}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+        if (update.notes.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(update.notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(10.dp))
+        when (install) {
+            is com.habitminer.update.InstallState.Downloading ->
+                Text("Downloading… ${install.percent}%", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            com.habitminer.update.InstallState.Verifying ->
+                Text("Checking the file…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            is com.habitminer.update.InstallState.Ready ->
+                FilledTonalButton(onClick = onInstall) { Text("Install") }
+            else -> {
+                if (install is com.habitminer.update.InstallState.Failed) {
+                    Text(install.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(8.dp))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = onDownload) { Text(if (install is com.habitminer.update.InstallState.Failed) "Try again" else "Download") }
+                    androidx.compose.material3.TextButton(onClick = onSkip) { Text("Skip this version") }
+                }
+            }
+        }
+    }
+}

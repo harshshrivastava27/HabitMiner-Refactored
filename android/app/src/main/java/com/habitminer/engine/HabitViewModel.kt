@@ -142,6 +142,13 @@ data class HabitUiState(
     val welcomeBack: com.habitminer.analytics.BreakSummary? = null,
     /** HabitMiner's own battery use for the last 7 days, today last (empty until there are samples). */
     val selfHealth: ImmutableList<com.habitminer.analytics.PowerModel.DayUse> = persistentListOf(),
+    /** A newer release waiting to be installed. */
+    val update: com.habitminer.analytics.ReleaseInfo? = null,
+    val installState: com.habitminer.update.InstallState = com.habitminer.update.InstallState.Idle,
+    val updateChecks: Boolean = true,
+    val installedVersion: String = "",
+    /** "checking", "latest", "offline" or null before any manual check. */
+    val updateCheckResult: String? = null,
     /** Screen time per day for the last 14 days, oldest first. */
     val dailyTotals: ImmutableList<Pair<java.time.LocalDate, Long>> = persistentListOf(),
     /** Every app used in the last five weeks, most used this week first. */
@@ -175,6 +182,8 @@ class HabitViewModel
         private val insightRepository: com.habitminer.repository.InsightRepository,
         private val recordingControl: com.habitminer.collection.RecordingControl,
         private val selfHealthRecorder: com.habitminer.collection.SelfHealthRecorder,
+        private val updateChecker: com.habitminer.update.UpdateChecker,
+        private val updateInstaller: com.habitminer.update.UpdateInstaller,
     ) : AndroidViewModel(application), HabitActions {
         private val _uiState = MutableStateFlow(HabitUiState(selectedHistoryDate = getStartOfDay()))
         val uiState: StateFlow<HabitUiState> = _uiState.asStateFlow()
@@ -660,6 +669,37 @@ class HabitViewModel
             _uiState.update { it.copy(welcomeBack = summary) }
         }
 
+        override fun downloadUpdate() {
+            val release = _uiState.value.update ?: return
+            viewModelScope.launch { updateInstaller.download(release) }
+        }
+
+        override fun installUpdate() {
+            val st = _uiState.value.installState
+            if (st !is com.habitminer.update.InstallState.Ready) return
+            if (!updateInstaller.canInstall()) updateInstaller.requestInstallPermission() else updateInstaller.install(st.file)
+        }
+
+        override fun skipUpdate() {
+            _uiState.value.update?.let { updateChecker.skip(it.tag) }
+            updateInstaller.reset()
+            _uiState.update { it.copy(update = null) }
+        }
+
+        override fun setUpdateChecks(enabled: Boolean) {
+            updateChecker.enabled = enabled
+            com.habitminer.update.UpdateWorker.schedule(getApplication(), enabled)
+            _uiState.update { it.copy(updateChecks = enabled) }
+        }
+
+        override fun checkForUpdates() {
+            _uiState.update { it.copy(updateCheckResult = "checking") }
+            viewModelScope.launch {
+                val found = withContext(Dispatchers.IO) { runCatching { updateChecker.check(force = true) }.getOrNull() }
+                _uiState.update { it.copy(update = found, updateCheckResult = if (found != null) null else "latest") }
+            }
+        }
+
         override fun dismissWelcomeBack() {
             recordingControl.welcomeBackShown()
             _uiState.update { it.copy(welcomeBack = null) }
@@ -1020,6 +1060,14 @@ class HabitViewModel
                         _uiState.update { it.copy(places = places.toImmutableList()) }
                     }
                 }
+
+                // App updates: the daily check also runs when the app opens, if a day has passed.
+                launch {
+                    _uiState.update { it.copy(updateChecks = updateChecker.enabled, installedVersion = updateChecker.installedName, update = updateChecker.pending()) }
+                    val found = withContext(Dispatchers.IO) { runCatching { updateChecker.check() }.getOrNull() }
+                    _uiState.update { it.copy(update = found) }
+                }
+                launch { updateInstaller.state.collect { st -> _uiState.update { it.copy(installState = st) } } }
 
                 // HabitMiner's own battery use, last 7 days (today last).
                 launch {

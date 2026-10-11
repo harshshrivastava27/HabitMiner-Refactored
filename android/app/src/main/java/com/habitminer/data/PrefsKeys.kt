@@ -89,4 +89,13 @@ object PrefsKeys {
     const val LAST_EVENT_PREFIX = "last_event_"
     /** Export hides app names: packages become short salted hashes, and place names are left out. */
     const val EXPORT_PRIVATE = "export_private"
+    // App updates (checked against GitHub releases).
+    const val UPDATE_CHECK_ENABLED = "update_check_enabled"
+    const val UPDATE_LAST_CHECK = "update_last_check"
+    const val UPDATE_NOT_BEFORE = "update_not_before"
+    const val UPDATE_FAILURES = "update_failures"
+    const val UPDATE_ETAG = "update_etag"
+    const val UPDATE_CACHED = "update_cached"
+    const val UPDATE_SKIPPED = "update_skipped"
+    const val UPDATE_NOTIFIED = "update_notified"
 }

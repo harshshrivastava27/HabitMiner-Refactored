@@ -166,6 +166,38 @@ fun SettingsScreen(
 
         item(key = "sources") { SourcesSection(state, viewModel) }
 
+        item(key = "updates") {
+            SectionHeader(
+                "App updates",
+                info =
+                    "Once a day HabitMiner Extended asks GitHub whether a new version is out. That is the only time it uses the network, " +
+                        "and it sends nothing about you. Updates are checked against a checksum and the app's signing key before you're asked to install.",
+            )
+            RowGroup {
+                row {
+                    ToggleRow(
+                        "Check for updates",
+                        "Daily, in the background. Turn off to update only by hand.",
+                        state.updateChecks,
+                        onChange = viewModel::setUpdateChecks,
+                    )
+                }
+                row {
+                    ListRow(
+                        "Version ${state.installedVersion}",
+                        supporting =
+                            when {
+                                state.update != null -> "${state.update.versionName} is available, see Today"
+                                state.updateCheckResult == "checking" -> "Checking…"
+                                state.updateCheckResult == "latest" -> "You're up to date"
+                                else -> "Check now"
+                            },
+                        onClick = { viewModel.checkForUpdates() },
+                    )
+                }
+            }
+        }
+
         item(key = "data") {
             SectionHeader(
                 "Your data",
