@@ -119,7 +119,7 @@ class ScreenshotTest {
     }
 
     @Test
-    fun todayLight() = shoot("01_today_light", dark = false) { TodayScreen(data.state, NoActions, NoNav, intention = "Finish the lab report", now = data.now) }
+    fun todayLight() = shoot("01_today_light", dark = false) { TodayScreen(data.state, NoActions, NoNav, intention = "Finish the lab report", dailyTargetMinutes = 240, now = data.now) }
 
     @Test
     fun todayDark() = shoot("02_today_dark", dark = true) { TodayScreen(data.state, NoActions, NoNav, now = data.now) }

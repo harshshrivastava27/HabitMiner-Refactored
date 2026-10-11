@@ -153,7 +153,7 @@ fun TypicalDayChart(
     modifier: Modifier = Modifier,
 ) {
     val data = com.habitminer.ui.theme.LocalDataColors.current
-    val todayColor = data.screen
+    val todayColor = data.screenHue.text
     val bandColor = data.usual.copy(alpha = 0.14f)
     val medianColor = data.usual.copy(alpha = 0.7f)
     val gridColor = data.track
@@ -175,7 +175,7 @@ fun TypicalDayChart(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(120.dp)
+                    .height(140.dp)
                     .semantics { contentDescription = description },
         ) {
             val w = size.width
@@ -208,7 +208,19 @@ fun TypicalDayChart(
                 val today = Path()
                 today.moveTo(x(curve.today.first().first), y(curve.today.first().second))
                 curve.today.drop(1).forEach { (hr, min) -> today.lineTo(x(hr), y(min)) }
-                drawPath(today, todayColor, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
+                val area =
+                    Path().apply {
+                        addPath(today)
+                        lineTo(x(curve.today.last().first), h)
+                        lineTo(x(curve.today.first().first), h)
+                        close()
+                    }
+                drawPath(area, androidx.compose.ui.graphics.Brush.verticalGradient(listOf(todayColor.copy(alpha = 0.35f), todayColor.copy(alpha = 0f))))
+                drawPath(
+                    today,
+                    androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(data.screenHue.start, data.screenHue.end)),
+                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round),
+                )
             }
             now?.let { drawCircle(todayColor, radius = 4.dp.toPx(), center = Offset(x(it.first), y(it.second))) }
         }

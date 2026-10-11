@@ -1227,3 +1227,27 @@ class UpdateLogicTest {
         assertNull(UpdateLogic.newest(rs, 0, null)?.takeIf { false })
     }
 }
+
+class UsualPickupsTest {
+    private val zone = java.time.ZoneId.of("UTC")
+    private val today = java.time.LocalDate.of(2026, 10, 12)
+
+    private fun day(
+        d: java.time.LocalDate,
+        n: Int,
+    ) = (0 until n).map { TimeUtil.startOfDay(d, zone) + 8 * TimeUtil.HOUR + it * 60_000L }
+
+    @Test
+    fun `median of recent full days, ignoring today, set-aside and empty days`() {
+        val unlocks =
+            day(today.minusDays(1), 30) + day(today.minusDays(2), 40) + day(today.minusDays(3), 50) +
+                day(today.minusDays(4), 200) + day(today, 99)
+        assertEquals(45, PickupAnalyzer.usualPerDay(unlocks, today, zone))
+        assertEquals(40, PickupAnalyzer.usualPerDay(unlocks, today, zone, excluded = setOf(today.minusDays(4))))
+    }
+
+    @Test
+    fun `needs three days`() {
+        assertNull(PickupAnalyzer.usualPerDay(day(today.minusDays(1), 30) + day(today.minusDays(2), 40), today, zone))
+    }
+}

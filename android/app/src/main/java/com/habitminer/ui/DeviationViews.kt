@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.TrendingDown
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.habitminer.analytics.DayDeviation
@@ -74,15 +76,20 @@ private val DeviationKind.isMore: Boolean
 @Composable
 fun Panel(
     modifier: Modifier = Modifier,
+    /** Tints the card with the colour of what it's about. */
+    accent: androidx.compose.ui.graphics.Color? = null,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
+    val base = MaterialTheme.colorScheme.surfaceContainerLow
+    val dark = com.habitminer.ui.theme.LocalIsDark.current
+    val background = accent?.let { it.copy(alpha = if (dark) 0.14f else 0.07f).compositeOver(base) } ?: base
     Column(
         modifier =
             modifier
                 .padding(horizontal = 12.dp)
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.large)
-                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .background(background)
                 .padding(horizontal = 18.dp, vertical = 16.dp),
         content = content,
     )
@@ -100,11 +107,10 @@ fun DeviationCard(
     val haptic = rememberConfirmHaptic()
     Panel {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
+            com.habitminer.ui.design.IconTile(
                 if (dev.kind.isMore) Icons.Rounded.TrendingUp else Icons.Rounded.TrendingDown,
-                contentDescription = if (dev.kind.isMore) "More than usual" else "Less than usual",
-                tint = colors.caution,
-                modifier = Modifier.size(20.dp),
+                if (dev.kind.isMore) colors.screenHue.start else colors.freeHue.start,
+                size = 26.dp,
             )
             Spacer(Modifier.width(10.dp))
             Text(dev.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
@@ -122,14 +128,14 @@ fun DeviationCard(
             UserLabelEntity.FEEDBACK_UNUSUAL -> Text("You marked this as unusual.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             else ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
+                    com.habitminer.ui.design.HueTonalButton("Expected", colors.freeHue, {
                         haptic()
                         onFeedback(UserLabelEntity.FEEDBACK_EXPECTED)
-                    }) { Text("Expected") }
-                    OutlinedButton(onClick = {
+                    })
+                    com.habitminer.ui.design.HueTonalButton("Unusual", colors.screenHue, {
                         haptic()
                         onFeedback(UserLabelEntity.FEEDBACK_UNUSUAL)
-                    }) { Text("Unusual") }
+                    })
                 }
         }
     }
@@ -147,10 +153,13 @@ fun RoutineShiftCard(
     val haptic = rememberConfirmHaptic()
     val option = answer?.let { PeriodOption.fromKey(it) }
     val name = shift.label ?: option?.takeIf { it.setsAside }?.label
-    Panel {
+    val hue = LocalDataColors.current.stepsHue
+    Panel(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Routine change", hue, if (shift.less) Icons.Rounded.TrendingDown else Icons.Rounded.TrendingUp)
+        Spacer(Modifier.height(6.dp))
         Text(
             (name ?: "Your routine changed") + " since ${DeviationFinder.shortDate(shift.since)}",
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(4.dp))
@@ -182,12 +191,12 @@ fun RoutineShiftCard(
                 val options = if (expanded) PeriodOption.entries else listOf(PeriodOption.EXAMS, PeriodOption.TRAVEL, PeriodOption.NOTHING)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     options.forEach { o ->
-                        OutlinedButton(onClick = {
+                        com.habitminer.ui.design.HueTonalButton(o.label, hue, {
                             haptic()
                             onLabel(o.key)
-                        }) { Text(o.label) }
+                        })
                     }
-                    if (!expanded) TextButton(onClick = { expanded = true }) { Text("More") }
+                    if (!expanded) TextButton(onClick = { expanded = true }) { Text("More", color = hue.text) }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -220,8 +229,9 @@ fun NapQuestionCard(
 ) {
     val zone = ZoneId.systemDefault()
     val haptic = rememberConfirmHaptic()
-    HeroContainer {
-        Text("Were you asleep?", style = MaterialTheme.typography.labelLarge, color = LocalDataColors.current.sleep)
+    val hue = LocalDataColors.current.sleepHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Were you asleep?", hue, Icons.Rounded.Bedtime)
         Spacer(Modifier.height(6.dp))
         Text(
             "Your phone was untouched from ${Format.clock(nap.start, zone)} to ${Format.clock(nap.end, zone)}, ${Format.duration(nap.durationMs)}.",
@@ -238,14 +248,14 @@ fun NapQuestionCard(
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(onClick = {
+            com.habitminer.ui.design.HueButton("Yes, I napped", hue, {
                 haptic()
                 onAnswer(true)
-            }) { Text("Yes, I napped") }
-            OutlinedButton(onClick = {
+            })
+            com.habitminer.ui.design.HueTonalButton("No", hue, {
                 haptic()
                 onAnswer(false)
-            }) { Text("No") }
+            })
         }
     }
 }

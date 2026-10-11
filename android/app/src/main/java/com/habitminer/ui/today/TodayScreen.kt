@@ -16,6 +16,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.TrendingDown
+import androidx.compose.material.icons.rounded.Lightbulb
+import com.habitminer.ui.design.MetricTile
+import com.habitminer.ui.design.TileRow
+import com.habitminer.ui.design.ActivityRings
+import com.habitminer.ui.design.RingSpec
+import com.habitminer.ui.design.RingLegend
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.BatteryStd
 import androidx.compose.material.icons.rounded.DarkMode
@@ -98,6 +113,8 @@ fun TodayScreen(
     modifier: Modifier = Modifier,
     /** Today's intention from Goals, shown under the comparison. */
     intention: String? = null,
+    /** The daily phone-time target from Goals, which the screen-time ring closes at. */
+    dailyTargetMinutes: Int? = null,
     now: Long = System.currentTimeMillis(),
 ) {
     val zone = remember { ZoneId.systemDefault() }
@@ -119,13 +136,17 @@ fun TodayScreen(
         item(key = "top") { TopLine(today, nav::openSettings) }
 
         item(key = "hero") {
+            TodayRings(state, dailyTargetMinutes, zone)
             Column(modifier = Modifier.padding(horizontal = ScreenPadding)) {
-                HeroDuration(state.todayScreenTimeMs)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(14.dp))
                 ComparisonLine(state.todayScreenTimeMs, state.typicalUsage, today)
                 intention?.let {
                     Spacer(Modifier.height(10.dp))
-                    Text("Today: $it", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Flag, contentDescription = null, tint = LocalDataColors.current.pickupsHue.text, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(it, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    }
                 }
             }
         }
@@ -222,25 +243,25 @@ fun TodayScreen(
         }
 
         item(key = "stats") {
-            Spacer(Modifier.height(24.dp))
-            StatRow {
-                StatColumn(
-                    "Pickups",
-                    "${state.todayUnlocks}",
-                    modifier = Modifier.weight(1f),
-                    caption = insights?.pickupsToday?.takeIf { it.total > 0 }?.let { "${Format.percent(it.notificationShare)} after a notification" },
-                )
-                StatColumn(
-                    "Phone-free",
-                    state.phoneFree?.let { Format.duration(it.durationMs) } ?: "–",
-                    modifier = Modifier.weight(1f),
-                    caption = state.phoneFree?.let { "${Format.clock(it.start, zone)} to ${Format.clock(it.end, zone)}" } ?: "longest stretch today",
-                )
-                StatColumn(
-                    "Steps",
-                    if (state.stepsToday >= 0) grouped(state.stepsToday) else "–",
-                    modifier = Modifier.weight(1f),
+            val colors = LocalDataColors.current
+            Spacer(Modifier.height(16.dp))
+            TileRow {
+                MetricTile(
+                    icon = Icons.Rounded.DirectionsWalk,
+                    label = "Steps",
+                    value = if (state.stepsToday >= 0) grouped(state.stepsToday) else "–",
+                    hue = colors.stepsHue,
                     caption = if (state.stepsToday < 0) (if (state.stepPermission) "from your next steps" else "needs permission") else "today",
+                    modifier = Modifier.weight(1f),
+                )
+                val pickups = insights?.pickupsToday?.takeIf { it.total > 0 }
+                MetricTile(
+                    icon = Icons.Rounded.NotificationsActive,
+                    label = "Notified",
+                    value = pickups?.let { Format.percent(it.notificationShare) } ?: "–",
+                    hue = colors.notificationsHue,
+                    caption = pickups?.let { "of pickups came right after a notification" } ?: "pickups after a notification",
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -253,14 +274,16 @@ fun TodayScreen(
         }
 
         if (lastNight != null) {
-            item(key = "sleep-header") { SectionHeader("Last night", actionLabel = "Sleep", onAction = nav::openSleep) }
+            item(key = "sleep-header") {
+                SectionHeader("Last night", actionLabel = "Sleep", onAction = nav::openSleep, icon = Icons.Rounded.Bedtime, iconColor = LocalDataColors.current.sleepHue.start)
+            }
             item(key = "sleep") {
                 SleepLane(lastNight, naps = todayNaps, zone = zone)
                 Spacer(Modifier.height(8.dp))
                 val day = insights?.sleepToday
                 Text(
                     buildAnnotatedString {
-                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = LocalDataColors.current.sleepHue.text)) {
                             append("${Format.duration(lastNight.durationMs)} asleep")
                         }
                         append(", ${Format.clock(lastNight.sleepStart, zone)} to ${Format.clock(lastNight.wakeTime, zone)}")
@@ -281,6 +304,8 @@ fun TodayScreen(
             item(key = "next-header") {
                 SectionHeader(
                     "Likely next",
+                    icon = Icons.Rounded.AutoAwesome,
+                    iconColor = LocalDataColors.current.freeHue.start,
                     info =
                         "After ${state.predictionsAfter ?: "your last app"}, these are the apps you tend to open, from your recent app switches " +
                             "(recent days count more).\n\nTrends → Routines shows how often these guesses are right.",
@@ -303,20 +328,83 @@ fun TodayScreen(
         }
 
         if (state.todayUsageByApp.isNotEmpty()) {
-            item(key = "apps-header") { SectionHeader("Apps today", actionLabel = "All apps", onAction = nav::openApps) }
+            item(key = "apps-header") {
+                SectionHeader("Apps today", actionLabel = "All apps", onAction = nav::openApps, icon = Icons.Rounded.Smartphone, iconColor = LocalDataColors.current.screenHue.start)
+            }
             item(key = "apps") {
                 val packages = remember(state.todayAppUsage) { state.todayAppUsage.associate { it.appName to it.packageName } }
-                val colors = LocalDataColors.current
+                val categories = remember(todaySessions) { todaySessions.associate { it.appName to it.category } }
                 val top = remember(state.todayUsageByApp) { state.todayUsageByApp.entries.sortedByDescending { it.value }.take(5) }
                 BarList(
                     top.map { (app, ms) ->
-                        BarItem(app, ms, Format.duration(ms), colors.screen, leading = { AppIcon(packages[app], app, size = 28.dp) })
+                        BarItem(
+                            app,
+                            ms,
+                            Format.duration(ms),
+                            com.habitminer.ui.components.categoryColor(categories[app] ?: com.habitminer.analytics.AppCategory.OTHER),
+                            leading = { AppIcon(packages[app], app, size = 32.dp) },
+                        )
                     },
                 )
             }
         }
 
         item(key = "around") { AroundYou(state) }
+    }
+}
+
+/**
+ * Three rings, outermost first: screen time against your target (or a usual day), pickups
+ * against a usual day, and your longest phone-free stretch against two hours. The figures sit
+ * beside them in the same colours.
+ */
+@Composable
+private fun TodayRings(
+    state: HabitUiState,
+    dailyTargetMinutes: Int?,
+    zone: ZoneId,
+) {
+    val colors = LocalDataColors.current
+    val screenMs = state.todayScreenTimeMs
+    val targetMs = dailyTargetMinutes?.let { it * 60_000L } ?: state.typicalUsage?.expectedFullDayMs?.takeIf { it > 0 }
+    val usualPickups = state.insights?.usualPickups?.takeIf { it > 0 }
+    val freeMs = state.phoneFree?.durationMs ?: 0L
+    val freeGoalMs = 2 * TimeUtil.HOUR
+    val rings =
+        listOf(
+            RingSpec(targetMs?.let { screenMs.toFloat() / it } ?: 0f, colors.screenHue),
+            RingSpec(usualPickups?.let { state.todayUnlocks.toFloat() / it } ?: 0f, colors.pickupsHue),
+            RingSpec(freeMs.toFloat() / freeGoalMs, colors.freeHue),
+        )
+    val screenCaption =
+        when {
+            dailyTargetMinutes != null && targetMs != null -> "of your ${Format.duration(targetMs)} target"
+            targetMs != null -> "of a usual ${Format.duration(targetMs)} day"
+            else -> "so far today"
+        }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = ScreenPadding, end = ScreenPadding, top = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ActivityRings(
+            rings,
+            size = 150.dp,
+            stroke = 18.dp,
+            description =
+                "Screen time ${Format.duration(screenMs)}, ${state.todayUnlocks} pickups, longest phone-free stretch " +
+                    (state.phoneFree?.let { Format.duration(it.durationMs) } ?: "none yet"),
+        )
+        Spacer(Modifier.width(22.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            RingLegend("Screen time", Format.duration(screenMs), screenCaption, colors.screenHue)
+            RingLegend("Pickups", "${state.todayUnlocks}", usualPickups?.let { "usually $it a day" } ?: "today", colors.pickupsHue)
+            RingLegend(
+                "Phone-free",
+                state.phoneFree?.let { Format.duration(it.durationMs) } ?: "–",
+                state.phoneFree?.let { "${Format.clock(it.start, zone)} to ${Format.clock(it.end, zone)}" } ?: "2h closes the ring",
+                colors.freeHue,
+            )
+        }
     }
 }
 
@@ -327,10 +415,13 @@ private fun TopLine(
 ) {
     val fmt = remember { DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()) }
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = ScreenPadding, end = 8.dp, top = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = ScreenPadding, end = 8.dp, top = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(today.format(fmt), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(today.format(fmt), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Today", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onBackground)
+        }
         IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
     }
 }
@@ -380,7 +471,10 @@ private fun CheckInPanel(
     onDismiss: () -> Unit,
 ) {
     val haptic = rememberConfirmHaptic()
-    HeroContainer {
+    val hue = LocalDataColors.current.screenHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Quick check-in", hue, Icons.Rounded.TouchApp)
+        Spacer(Modifier.height(6.dp))
         Text("What are you doing right now?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
         Text(
@@ -391,12 +485,12 @@ private fun CheckInPanel(
         Spacer(Modifier.height(12.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             CheckInOption.entries.forEach { option ->
-                OutlinedButton(onClick = {
+                com.habitminer.ui.design.HueTonalButton(option.label, hue, {
                     haptic()
                     onAnswer(option)
-                }) { Text(option.label) }
+                })
             }
-            TextButton(onClick = onDismiss) { Text("Skip") }
+            TextButton(onClick = onDismiss) { Text("Skip", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
@@ -409,8 +503,9 @@ private fun DeviationPanel(
     onFeedback: (String) -> Unit,
 ) {
     val haptic = rememberConfirmHaptic()
-    HeroContainer {
-        Text("Different today", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    val hue = if (dev.kind.isMore) LocalDataColors.current.screenHue else LocalDataColors.current.freeHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Different today", hue, if (dev.kind.isMore) Icons.Rounded.TrendingUp else Icons.Rounded.TrendingDown)
         Spacer(Modifier.height(6.dp))
         Text(dev.title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
@@ -420,15 +515,15 @@ private fun DeviationPanel(
             UserLabelEntity.FEEDBACK_UNUSUAL -> Text("You marked this as unusual.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             else ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilledTonalButton(onClick = {
+                    com.habitminer.ui.design.HueButton("Expected", hue, {
                         haptic()
                         onFeedback(UserLabelEntity.FEEDBACK_EXPECTED)
-                    }) { Text("Expected") }
-                    OutlinedButton(onClick = {
+                    })
+                    com.habitminer.ui.design.HueTonalButton("Unusual", hue, {
                         haptic()
                         onFeedback(UserLabelEntity.FEEDBACK_UNUSUAL)
-                    }) { Text("Unusual") }
-                    TextButton(onClick = onSeeAll) { Text("All changes") }
+                    })
+                    TextButton(onClick = onSeeAll) { Text("All changes", color = hue.text) }
                 }
         }
     }
@@ -436,8 +531,9 @@ private fun DeviationPanel(
 
 @Composable
 private fun ContextInsightPanel(insight: ContextInsight) {
-    HeroContainer {
-        Text("Worth knowing", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    val hue = LocalDataColors.current.nowHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Worth knowing", hue, Icons.Rounded.Lightbulb)
         Spacer(Modifier.height(6.dp))
         Text(insight.headline, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
@@ -453,6 +549,8 @@ private fun AroundYou(state: HabitUiState) {
     if (sensors == null && latest == null) return
     SectionHeader(
         "Around you",
+        icon = Icons.Rounded.Explore,
+        iconColor = LocalDataColors.current.stepsHue.start,
         info =
             "Light and motion are read when you unlock the phone, when you open HabitMiner, and every 5 to 30 minutes while the " +
                 "screen is on. Motion also counts as moving when the step counter saw you walking.",
@@ -465,10 +563,11 @@ private fun AroundYou(state: HabitUiState) {
         sensors?.let { s ->
             if (s.lightLux >= 0f) {
                 val light = com.habitminer.analytics.ContextLabels.light(s.lightLux)
+                val c = LocalDataColors.current
                 when (light) {
-                    Light.DARK -> AroundItem(Icons.Rounded.DarkMode, "Dark")
-                    Light.DIM -> AroundItem(Icons.Rounded.WbTwilight, "Dim")
-                    Light.BRIGHT -> AroundItem(Icons.Rounded.LightMode, "Bright")
+                    Light.DARK -> AroundItem(Icons.Rounded.DarkMode, "Dark", c.sleepHue.text)
+                    Light.DIM -> AroundItem(Icons.Rounded.WbTwilight, "Dim", c.stepsHue.text)
+                    Light.BRIGHT -> AroundItem(Icons.Rounded.LightMode, "Bright", c.nowHue.text)
                     null -> Unit
                 }
             }
@@ -480,14 +579,19 @@ private fun AroundYou(state: HabitUiState) {
                         Motion.MOVING -> "Moving"
                         Motion.ACTIVE -> "Very active"
                     },
+                    LocalDataColors.current.stepsHue.text,
                 )
             }
         }
         latest?.let { l ->
             if (l.batteryLevel in 0..100) {
-                AroundItem(if (l.isCharging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryStd, "${l.batteryLevel}%" + if (l.isCharging) ", charging" else "")
+                AroundItem(
+                    if (l.isCharging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryStd,
+                    "${l.batteryLevel}%" + if (l.isCharging) ", charging" else "",
+                    LocalDataColors.current.goodHue.text,
+                )
             }
-            l.wifiPlace?.let { hash -> state.insights?.placeNames?.get(hash)?.let { AroundItem(Icons.Rounded.Place, it) } }
+            l.wifiPlace?.let { hash -> state.insights?.placeNames?.get(hash)?.let { AroundItem(Icons.Rounded.Place, it, LocalDataColors.current.freeHue.text) } }
         }
     }
     sensors?.let {
@@ -505,9 +609,10 @@ private fun AroundYou(state: HabitUiState) {
 private fun AroundItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     text: String,
+    tint: androidx.compose.ui.graphics.Color,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(6.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
     }

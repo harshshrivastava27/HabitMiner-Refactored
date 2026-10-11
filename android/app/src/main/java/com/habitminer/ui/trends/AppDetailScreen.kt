@@ -2,6 +2,9 @@
 
 package com.habitminer.ui.trends
 
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.ShowChart
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,7 +96,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.detail(
 ) {
     item(key = "hero") {
         Column(modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 12.dp)) {
-            HeroDuration(d.perDayMs)
+            HeroDuration(d.perDayMs, color = LocalDataColors.current.screenHue.text)
             Text(
                 "a day on average over the last ${d.days} day${if (d.days == 1) "" else "s"}",
                 style = MaterialTheme.typography.bodyMedium,
@@ -120,9 +123,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.detail(
             StatColumn("Typical visit", Format.duration(d.medianSessionMs), modifier = Modifier.weight(1f), caption = "median")
         }
     }
-    item(key = "trend-header") { SectionHeader("Last 14 days") }
+    item(key = "trend-header") { SectionHeader("Last 14 days", icon = androidx.compose.material.icons.Icons.Rounded.ShowChart, iconColor = LocalDataColors.current.screenHue.start) }
     item(key = "trend") {
-        Sparkline(d.last14, LocalDataColors.current.screen, modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding), height = 56.dp)
+        Sparkline(d.last14, LocalDataColors.current.screenHue.text, modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding), height = 72.dp)
     }
     item(key = "grid-header") {
         SectionHeader(
@@ -132,7 +135,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.detail(
     }
     item(key = "grid") { WeekdayHourGrid(d.weekdayHour) }
     d.busiestHour?.let { h -> item(key = "busiest") { Note("Most often around ${Format.hourRange(h)}.") } }
-    item(key = "why-header") { SectionHeader("What brings you here") }
+    item(key = "why-header") { SectionHeader("What brings you here", icon = androidx.compose.material.icons.Icons.Rounded.NotificationsActive, iconColor = LocalDataColors.current.notificationsHue.start) }
     item(key = "why") {
         RowGroup {
             row {
@@ -152,7 +155,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.detail(
         }
     }
     if (routines.isNotEmpty()) {
-        item(key = "routines-header") { SectionHeader("Part of your routines") }
+        item(key = "routines-header") { SectionHeader("Part of your routines", icon = androidx.compose.material.icons.Icons.Rounded.Repeat, iconColor = LocalDataColors.current.freeHue.start) }
         item(key = "routines") {
             RowGroup { routines.forEach { r -> row { ListRow(r) } } }
         }
@@ -180,7 +183,7 @@ private fun WeekdayHourGrid(grid: Array<IntArray>) {
                 for (r in 0 until 7) {
                     for (c in 0 until 24) {
                         val m = grid[r][c]
-                        val col = if (m == 0) colors.track else colors.screen.copy(alpha = 0.2f + 0.8f * m / max)
+                        val col = if (m == 0) colors.screenHue.start.copy(alpha = colors.trackAlpha * 0.5f) else androidx.compose.ui.graphics.lerp(colors.screenHue.start.copy(alpha = 0.35f), colors.screenHue.end, m.toFloat() / max)
                         drawRoundRect(col, Offset(c * cw + g / 2, r * ch + g / 2), Size(cw - g, ch - g), CornerRadius(3.dp.toPx()))
                     }
                 }

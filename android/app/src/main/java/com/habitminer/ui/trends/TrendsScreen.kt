@@ -3,6 +3,14 @@
 
 package com.habitminer.ui.trends
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.ShowChart
+import androidx.compose.material.icons.rounded.CalendarViewWeek
+import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Mood
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -104,7 +112,18 @@ fun TrendsScreen(
             modifier = Modifier.padding(vertical = 8.dp),
         ) {
             items(TrendsTab.entries) { t ->
-                FilterChip(selected = tab == t, onClick = { tab = t }, label = { Text(t.label) })
+                val hue = LocalDataColors.current.freeHue
+                FilterChip(
+                    selected = tab == t,
+                    onClick = { tab = t },
+                    label = { Text(t.label) },
+                    colors =
+                        androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = hue.start.copy(alpha = if (com.habitminer.ui.theme.LocalIsDark.current) 0.24f else 0.14f),
+                            selectedLabelColor = hue.text,
+                        ),
+                    border = androidx.compose.material3.FilterChipDefaults.filterChipBorder(enabled = true, selected = tab == t, borderColor = MaterialTheme.colorScheme.outline, selectedBorderColor = hue.start.copy(alpha = 0f)),
+                )
             }
         }
         val listState = rememberLazyListState()
@@ -137,7 +156,7 @@ private fun LazyListScope.overview(
     insights.week?.let { week ->
         item(key = "week-hero") {
             Column(modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 8.dp)) {
-                HeroDuration(week.currentPerDayMs)
+                HeroDuration(week.currentPerDayMs, color = LocalDataColors.current.screenHue.text)
                 Text(weekLine(week), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -146,9 +165,9 @@ private fun LazyListScope.overview(
         item(key = "fortnight") {
             Sparkline(
                 state.dailyTotals.map { it.second / 60_000f },
-                LocalDataColors.current.screen,
+                LocalDataColors.current.screenHue.text,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding, vertical = 8.dp),
-                height = 64.dp,
+                height = 80.dp,
             )
             val fmt = remember { DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()) }
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding)) {
@@ -159,10 +178,27 @@ private fun LazyListScope.overview(
     }
     item(key = "story") {
         Spacer(Modifier.height(8.dp))
-        RowGroup { row { ListRow("Weekly Story", supporting = "Your last seven days in a few cards, and one small experiment", onClick = onOpenStory) } }
+        RowGroup {
+            row {
+                ListRow(
+                    "Weekly Story",
+                    supporting = "Your last seven days in a few cards, and one small experiment",
+                    onClick = onOpenStory,
+                    icon = Icons.Rounded.AutoStories,
+                    iconColor = LocalDataColors.current.stepsHue.start,
+                )
+            }
+        }
     }
     insights.week?.biggestMovers?.takeIf { it.isNotEmpty() }?.let { movers ->
-        item(key = "movers-header") { SectionHeader("Biggest changes", info = "Average time a day in each app this week compared with the week before.") }
+        item(key = "movers-header") {
+            SectionHeader(
+                "Biggest changes",
+                info = "Average time a day in each app this week compared with the week before.",
+                icon = Icons.Rounded.SwapVert,
+                iconColor = LocalDataColors.current.stepsHue.start,
+            )
+        }
         item(key = "movers") {
             RowGroup {
                 movers.forEach { c ->
@@ -171,6 +207,7 @@ private fun LazyListScope.overview(
                             c.name,
                             supporting = "${Format.duration(c.currentPerDayMs)} a day now",
                             trailingText = (if (c.deltaMs > 0) "+" else "−") + Format.duration(kotlin.math.abs(c.deltaMs)),
+                            trailingColor = if (c.deltaMs > 0) LocalDataColors.current.screenHue.text else LocalDataColors.current.freeHue.text,
                         )
                     }
                 }
@@ -181,18 +218,27 @@ private fun LazyListScope.overview(
         item(key = "curve-header") {
             SectionHeader(
                 "Today against a usual day",
+                icon = Icons.Rounded.ShowChart,
+                iconColor = LocalDataColors.current.screenHue.start,
                 info = "The line is your phone time adding up through today. The dashed line is a usual day (${curve.selection.description}) and the shaded band the usual range.",
             )
         }
         item(key = "curve") { Box(Modifier.padding(horizontal = ScreenPadding)) { TypicalDayChart(curve) } }
     }
     insights.heatmap?.takeIf { it.maxMinutes > 0 }?.let { map ->
-        item(key = "heat-header") { SectionHeader("When you use your phone") }
+        item(key = "heat-header") { SectionHeader("When you use your phone", icon = Icons.Rounded.CalendarViewWeek, iconColor = LocalDataColors.current.screenHue.start) }
         item(key = "heat") { UseHeatmap(map) }
     }
     item(key = "types") { DayTypesSection(insights.dayTypes) }
     if (insights.placeUsage.isNotEmpty()) {
-        item(key = "places-header") { SectionHeader("Where you use your phone", info = "From the Wi-Fi network you're connected to. Rename places in Settings.") }
+        item(key = "places-header") {
+            SectionHeader(
+                "Where you use your phone",
+                info = "From the Wi-Fi network you're connected to. Rename places in Settings.",
+                icon = Icons.Rounded.Place,
+                iconColor = LocalDataColors.current.freeHue.start,
+            )
+        }
         item(key = "places") {
             RowGroup {
                 insights.placeUsage.take(5).forEach { p ->
@@ -205,6 +251,8 @@ private fun LazyListScope.overview(
         item(key = "mood-header") {
             SectionHeader(
                 "Mood and your phone",
+                icon = Icons.Rounded.Mood,
+                iconColor = LocalDataColors.current.nowHue.start,
                 info =
                     "From the mood and energy you give after check-ins, compared with your phone time in the three hours before. " +
                         "Links like this are usually weak and don't show what causes what.",
@@ -240,7 +288,7 @@ private fun LazyListScope.overview(
         }
     }
     if (insights.contextInsights.isNotEmpty()) {
-        item(key = "context-header") { SectionHeader("Patterns in your surroundings") }
+        item(key = "context-header") { SectionHeader("Patterns in your surroundings", icon = Icons.Rounded.Explore, iconColor = LocalDataColors.current.stepsHue.start) }
         item(key = "context") {
             RowGroup { insights.contextInsights.forEach { c -> row { ListRow(c.headline, supporting = c.detail) } } }
         }
@@ -326,7 +374,12 @@ private fun AppsList(
     val r = AppRange.entries[range]
     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding, vertical = 8.dp)) {
         AppRange.entries.forEachIndexed { i, opt ->
-            SegmentedButton(selected = range == i, onClick = { range = i }, shape = SegmentedButtonDefaults.itemShape(i, AppRange.entries.size)) { Text(opt.label) }
+            SegmentedButton(
+                selected = range == i,
+                onClick = { range = i },
+                shape = SegmentedButtonDefaults.itemShape(i, AppRange.entries.size),
+                colors = com.habitminer.ui.design.hueSegmentedColors(LocalDataColors.current.freeHue),
+            ) { Text(opt.label) }
         }
     }
     val rows =
@@ -358,11 +411,15 @@ private fun AppsList(
                         trailingText = Format.duration(ms),
                         onClick = { onOpenApp(a.packageName) },
                     )
+                    val c = com.habitminer.ui.components.categoryColor(a.category)
                     Box(
-                        Modifier.padding(start = 66.dp, end = 16.dp, bottom = 10.dp).fillMaxWidth().height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)).background(colors.track),
+                        Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)).background(c.copy(alpha = colors.trackAlpha * 0.8f)),
                     ) {
-                        Box(Modifier.fillMaxWidth((ms.toFloat() / max).coerceIn(0.02f, 1f)).height(4.dp).clip(RoundedCornerShape(2.dp)).background(colors.screen))
+                        Box(
+                            Modifier.fillMaxWidth((ms.toFloat() / max).coerceIn(0.02f, 1f)).height(6.dp).clip(RoundedCornerShape(3.dp))
+                                .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(c, androidx.compose.ui.graphics.lerp(c, androidx.compose.ui.graphics.Color.White, 0.25f)))),
+                        )
                     }
                 }
             }
@@ -421,19 +478,19 @@ private fun PredictabilitySection(
     }
     val colors = LocalDataColors.current
     Row(modifier = Modifier.padding(horizontal = ScreenPadding), verticalAlignment = Alignment.Bottom) {
-        Text(Format.percent(result.hitRate), style = NumberStyles.hero.copy(fontSize = MaterialTheme.typography.displaySmall.fontSize), color = MaterialTheme.colorScheme.onSurface)
+        Text(Format.percent(result.hitRate), style = NumberStyles.hero.copy(fontSize = MaterialTheme.typography.displaySmall.fontSize), color = colors.freeHue.text)
         Spacer(Modifier.width(10.dp))
         Text("right first time", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
     }
-    ScoreLine("Right within its top 3", result.top3HitRate, colors.screen.copy(alpha = 0.75f))
-    if (result.top5HitRate > 0f) ScoreLine("Right within its top 5", result.top5HitRate, colors.screen.copy(alpha = 0.5f))
+    ScoreLine("Right within its top 3", result.top3HitRate, colors.freeHue.start)
+    if (result.top5HitRate > 0f) ScoreLine("Right within its top 5", result.top5HitRate, colors.freeHue.start.copy(alpha = 0.6f))
     val notified = result.notificationHitRate
     val self = result.selfStartedHitRate
     if (notified != null && self != null && result.notificationSwitches >= 5) {
         Spacer(Modifier.height(8.dp))
         SubHeading("Right first time, by how you got there")
-        ScoreLine("The app had just notified you (${result.notificationSwitches})", notified, colors.pickups)
-        ScoreLine("You opened it yourself (${result.testedTransitions - result.notificationSwitches})", self, colors.screen.copy(alpha = 0.75f))
+        ScoreLine("The app had just notified you (${result.notificationSwitches})", notified, colors.notificationsHue.start)
+        ScoreLine("You opened it yourself (${result.testedTransitions - result.notificationSwitches})", self, colors.screenHue.start)
     }
     Spacer(Modifier.height(8.dp))
     SubHeading("Simpler ways to guess, for comparison")

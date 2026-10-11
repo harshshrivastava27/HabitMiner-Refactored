@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -82,14 +83,23 @@ fun AppIcon(
     if (bmp != null) {
         Image(bmp, contentDescription = null, modifier = modifier.size(size).clip(CircleShape))
     } else {
+        val tint = nameColor(name)
         Box(
-            modifier = modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+            modifier =
+                modifier
+                    .size(size)
+                    .clip(CircleShape)
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            listOf(androidx.compose.ui.graphics.lerp(tint, androidx.compose.ui.graphics.Color.White, 0.2f), tint),
+                        ),
+                    ),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 name.firstOrNull()?.uppercase() ?: "?",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                style = MaterialTheme.typography.titleSmall.copy(fontSize = (size.value * 0.42f).sp),
+                color = androidx.compose.ui.graphics.Color.White,
             )
         }
     }

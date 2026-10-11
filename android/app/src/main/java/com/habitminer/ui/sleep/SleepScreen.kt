@@ -2,6 +2,16 @@
 
 package com.habitminer.ui.sleep
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Insights
+import androidx.compose.material.icons.rounded.NightsStay
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Snooze
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -135,22 +145,41 @@ fun SleepScreen(
         }
         last?.let { night ->
             item(key = "hero") {
-                Column(modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 8.dp)) {
-                    HeroDuration(night.durationMs, color = MaterialTheme.colorScheme.onBackground)
-                    Text(
-                        when (night.source) {
-                            SleepSource.YOU -> "asleep last night, ${Format.clock(night.sleepStart, zone)} to ${Format.clock(night.wakeTime, zone)}, as you set it"
-                            else ->
-                                "asleep last night, about ${Format.clock(night.sleepStart, zone)} to ${Format.clock(night.wakeTime, zone)}" +
-                                    if (night.confidence == Confidence.LOW) " (a rough guess)" else ""
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    TextButton(
-                        onClick = { fixing = NightToFix(night.wakeDate, night.sleepStart, night.wakeTime, night.source) },
-                        contentPadding = PaddingValues(horizontal = 0.dp),
-                    ) { Text(if (night.source == SleepSource.YOU) "Change times" else "Not right? Fix the times") }
+                val sleepHue = LocalDataColors.current.sleepHue
+                val usualNight = insights.sleepWeek?.avgNightMs?.takeIf { it > 0 }
+                Row(modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        HeroDuration(night.durationMs, color = sleepHue.text)
+                        Text(
+                            when (night.source) {
+                                SleepSource.YOU -> "asleep last night, ${Format.clock(night.sleepStart, zone)} to ${Format.clock(night.wakeTime, zone)}, as you set it"
+                                else ->
+                                    "asleep last night, about ${Format.clock(night.sleepStart, zone)} to ${Format.clock(night.wakeTime, zone)}" +
+                                        if (night.confidence == Confidence.LOW) " (a rough guess)" else ""
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(
+                            onClick = { fixing = NightToFix(night.wakeDate, night.sleepStart, night.wakeTime, night.source) },
+                            contentPadding = PaddingValues(horizontal = 0.dp),
+                        ) { Text(if (night.source == SleepSource.YOU) "Change times" else "Not right? Fix the times", color = sleepHue.text) }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                        com.habitminer.ui.design.ActivityRings(
+                            listOf(com.habitminer.ui.design.RingSpec(night.durationMs.toFloat() / (usualNight ?: (8 * TimeUtil.HOUR)), sleepHue)),
+                            size = 84.dp,
+                            stroke = 14.dp,
+                            description = "Last night against " + (usualNight?.let { "your usual ${Format.duration(it)}" } ?: "8 hours"),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            usualNight?.let { "usual ${Format.duration(it)}" } ?: "of 8h",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             item(key = "lane") {
@@ -160,14 +189,17 @@ fun SleepScreen(
             }
             item(key = "night-details") {
                 Spacer(Modifier.height(8.dp))
+                val c = LocalDataColors.current
                 RowGroup {
                     if (night.source != SleepSource.YOU && night.evidence.isNotEmpty()) {
-                        row { ListRow("Why it looks like sleep", supporting = night.evidence.joinToString(", ").replaceFirstChar { it.uppercase() }) }
+                        row { ListRow("Why it looks like sleep", supporting = night.evidence.joinToString(", ").replaceFirstChar { it.uppercase() }, icon = Icons.Rounded.Insights, iconColor = c.sleepHue.start) }
                     }
                     if (night.briefWakes.isNotEmpty()) {
                         row {
                             ListRow(
                                 "Woke briefly",
+                                icon = Icons.Rounded.NightsStay,
+                                iconColor = c.notificationsHue.start,
                                 supporting = night.briefWakes.joinToString(", ") { w -> Format.clock(w.start, zone) + if (w.alarm) " (alarm)" else "" },
                                 trailingText = "${night.briefWakes.size}",
                             )
@@ -177,6 +209,8 @@ fun SleepScreen(
                         row {
                             ListRow(
                                 "Looked at the lock screen",
+                                icon = Icons.Rounded.Visibility,
+                                iconColor = c.freeHue.start,
                                 supporting = "Without unlocking, e.g. to check the time",
                                 trailingText = "${night.glances}",
                             )
@@ -186,6 +220,8 @@ fun SleepScreen(
                         row {
                             ListRow(
                                 "Phone in the hour before sleep",
+                                icon = Icons.Rounded.PhoneAndroid,
+                                iconColor = c.screenHue.start,
                                 supporting = night.preSleepDarkShare?.let { "${Format.percent(it)} of it in the dark" },
                                 trailingText = Format.duration(night.preSleepUseMs),
                             )
@@ -195,6 +231,8 @@ fun SleepScreen(
                         row {
                             ListRow(
                                 "Last and first app",
+                                icon = Icons.Rounded.Apps,
+                                iconColor = c.stepsHue.start,
                                 supporting = listOfNotNull(night.lastAppBeforeSleep?.let { "$it before sleep" }, night.firstAppAfterWake?.let { "$it after waking" }).joinToString(", "),
                             )
                         }
@@ -213,7 +251,7 @@ fun SleepScreen(
 
         if (insights.sleepDays.isNotEmpty()) {
             item(key = "week-header") {
-                SectionHeader("This week", info = HOW_IT_WORKS)
+                SectionHeader("This week", info = HOW_IT_WORKS, icon = Icons.Rounded.BarChart, iconColor = LocalDataColors.current.sleepHue.start)
             }
             item(key = "week") {
                 SleepWeekColumns(insights.sleepDays, usualMs = insights.sleepWeek?.avgTotalMs)
@@ -221,12 +259,15 @@ fun SleepScreen(
             insights.sleepWeek?.let { w ->
                 item(key = "week-stats") {
                     Spacer(Modifier.height(12.dp))
+                    val c = LocalDataColors.current
                     RowGroup {
-                        row { ListRow("Average a day", supporting = "Night plus confirmed naps", trailingText = Format.duration(w.avgTotalMs)) }
-                        row { ListRow("Average night", trailingText = Format.duration(w.avgNightMs)) }
+                        row { ListRow("Average a day", supporting = "Night plus confirmed naps", trailingText = Format.duration(w.avgTotalMs), icon = Icons.Rounded.Bedtime, iconColor = c.sleepHue.start) }
+                        row { ListRow("Average night", trailingText = Format.duration(w.avgNightMs), icon = Icons.Rounded.NightsStay, iconColor = c.notificationsHue.start) }
                         row {
                             ListRow(
                                 "Naps",
+                                icon = Icons.Rounded.Snooze,
+                                iconColor = c.freeHue.start,
                                 supporting = if (w.napCount == 0) "None confirmed this week" else "${Format.duration(w.napTotalMs)} in total",
                                 trailingText = "${w.napCount}",
                             )
@@ -240,6 +281,8 @@ fun SleepScreen(
             item(key = "regularity-header") {
                 SectionHeader(
                     "Regularity",
+                    icon = Icons.Rounded.Schedule,
+                    iconColor = LocalDataColors.current.sleepHue.start,
                     info = "Each line is one night, from falling asleep to waking up. Lines that start and end at similar times mean a regular rhythm.",
                 )
             }
@@ -314,14 +357,20 @@ private fun NightsChart(
                 Canvas(modifier = Modifier.weight(1f).height(14.dp).semantics { contentDescription = desc }) {
                     val w = size.width
                     val span = 16 * 60f
-                    drawRoundRect(colors.track, Offset.Zero, size, CornerRadius(7.dp.toPx()))
+                    drawRoundRect(colors.sleepHue.start.copy(alpha = colors.trackAlpha * 0.6f), Offset.Zero, size, CornerRadius(7.dp.toPx()))
                     for (h in listOf(4, 8, 12)) {
                         val x = w * (h * 60f) / span
                         drawLine(colors.usual.copy(alpha = 0.25f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f)))
                     }
                     val s = w * offset(n.sleepStart, n.wakeDate) / span
                     val e = w * offset(n.wakeTime, n.wakeDate) / span
-                    drawRoundRect(colors.sleep.copy(alpha = if (n.confidence == Confidence.LOW) 0.5f else 1f), Offset(s, 0f), Size((e - s).coerceAtLeast(2f), size.height), CornerRadius(7.dp.toPx()))
+                    drawRoundRect(
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(colors.sleepHue.start, colors.sleepHue.end), startX = s, endX = e),
+                        Offset(s, 0f),
+                        Size((e - s).coerceAtLeast(2f), size.height),
+                        CornerRadius(7.dp.toPx()),
+                        alpha = if (n.confidence == Confidence.LOW) 0.5f else 1f,
+                    )
                 }
                 Text(
                     Format.duration(n.durationMs),

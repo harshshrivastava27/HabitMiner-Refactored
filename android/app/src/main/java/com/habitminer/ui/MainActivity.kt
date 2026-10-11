@@ -82,6 +82,19 @@ private enum class Tab(
     STATUS("status", "Status", Icons.Rounded.Sensors),
 }
 
+/** The colour of each tab: the hue of the measure it's mostly about. */
+@Composable
+private fun tabHue(tab: Tab): com.habitminer.ui.theme.Hue {
+    val c = com.habitminer.ui.theme.LocalDataColors.current
+    return when (tab) {
+        Tab.TODAY -> c.screenHue
+        Tab.TRENDS -> c.freeHue
+        Tab.SLEEP -> c.sleepHue
+        Tab.GOALS -> c.pickupsHue
+        Tab.STATUS -> c.stepsHue
+    }
+}
+
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_STORY = "story"
 private const val ROUTE_APP = "app/{${AppDetailViewModel.ARG_PACKAGE}}"
@@ -172,6 +185,29 @@ class MainActivity : ComponentActivity() {
         }
 
         val currentTab = Tab.entries.firstOrNull { route.startsWith(it.route) }
+        // Each tab has its own colour, the one its main measure uses.
+        val dark = com.habitminer.ui.theme.LocalIsDark.current
+        val tabColors =
+            Tab.entries.associateWith { tab ->
+                val hue = tabHue(tab)
+                val indicator = hue.start.copy(alpha = if (dark) 0.24f else 0.14f)
+                androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults.itemColors(
+                    navigationBarItemColors =
+                        androidx.compose.material3.NavigationBarItemDefaults.colors(
+                            selectedIconColor = hue.text,
+                            selectedTextColor = hue.text,
+                            indicatorColor = indicator,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                    navigationRailItemColors =
+                        androidx.compose.material3.NavigationRailItemDefaults.colors(
+                            selectedIconColor = hue.text,
+                            selectedTextColor = hue.text,
+                            indicatorColor = indicator,
+                        ),
+                )
+            }
         // A bottom bar on phones, a rail on wider screens.
         NavigationSuiteScaffold(
             navigationSuiteItems = {
@@ -181,6 +217,7 @@ class MainActivity : ComponentActivity() {
                         onClick = { nav.goTab(tab.route) },
                         icon = { Icon(tab.icon, contentDescription = null) },
                         label = { Text(tab.label) },
+                        colors = tabColors.getValue(tab),
                     )
                 }
             },
@@ -207,6 +244,7 @@ class MainActivity : ComponentActivity() {
                             override fun openApp(packageName: String) = nav.openApp(packageName)
                         },
                         intention = goals.intentionFor(java.time.LocalDate.now()),
+                        dailyTargetMinutes = goals.dailyTargetMinutes,
                     )
                 }
                 composable(

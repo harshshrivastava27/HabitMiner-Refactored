@@ -37,11 +37,11 @@ fun HabitMinerTheme(
     val scheme =
         if (wallpaperColors && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val context = LocalContext.current
-            (if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)).withPineSurfaces(darkTheme)
+            (if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)).withVividSurfaces(darkTheme)
         } else if (darkTheme) {
-            PineDark
+            VividDark
         } else {
-            PineLight
+            VividLight
         }
     CompositionLocalProvider(
         LocalDataColors provides if (darkTheme) DataColorsDark else DataColorsLight,

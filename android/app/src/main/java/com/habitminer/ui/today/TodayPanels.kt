@@ -3,6 +3,13 @@
 
 package com.habitminer.ui.today
 
+import com.habitminer.ui.theme.LocalDataColors
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Mood
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.WavingHand
+import androidx.compose.material.icons.rounded.SystemUpdate
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -57,8 +64,9 @@ fun InsightPanel(
     onOpen: () -> Unit,
 ) {
     val haptic = rememberConfirmHaptic()
-    HeroContainer(modifier = Modifier.clickable(onClickLabel = "See details", onClick = onOpen)) {
-        Text("Insight of the day", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    val hue = LocalDataColors.current.nowHue
+    HeroContainer(modifier = Modifier.clickable(onClickLabel = "See details", onClick = onOpen), accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Insight of the day", hue, Icons.Rounded.Lightbulb)
         Spacer(Modifier.height(6.dp))
         Text(insight.title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
@@ -69,14 +77,14 @@ fun InsightPanel(
         when (insight.feedback) {
             null ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = {
+                    com.habitminer.ui.design.HueButton("Useful", hue, {
                         haptic()
                         onFeedback("useful")
-                    }) { Text("Useful") }
-                    OutlinedButton(onClick = {
+                    })
+                    com.habitminer.ui.design.HueTonalButton("Fewer like this", hue, {
                         haptic()
                         onFeedback("fewer")
-                    }) { Text("Fewer like this") }
+                    })
                 }
             else ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -86,7 +94,7 @@ fun InsightPanel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { onFeedback(null) }) { Text("Undo") }
+                    TextButton(onClick = { onFeedback(null) }) { Text("Undo", color = hue.text) }
                 }
         }
         AnimatedVisibility(showExplainer) {
@@ -110,7 +118,10 @@ fun MoodPanel(onDone: (mood: Int?, energy: Int?) -> Unit) {
     var mood by remember { mutableStateOf<Int?>(null) }
     var energy by remember { mutableStateOf<Int?>(null) }
     val haptic = rememberConfirmHaptic()
-    HeroContainer {
+    val hue = LocalDataColors.current.notificationsHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Mood", hue, Icons.Rounded.Mood)
+        Spacer(Modifier.height(6.dp))
         Text("Thanks. How do you feel?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
         Text(
@@ -130,8 +141,8 @@ fun MoodPanel(onDone: (mood: Int?, energy: Int?) -> Unit) {
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { onDone(mood, energy) }, enabled = mood != null || energy != null) { Text("Save") }
-            TextButton(onClick = { onDone(null, null) }) { Text("Skip") }
+            com.habitminer.ui.design.HueButton("Save", hue, { onDone(mood, energy) }, enabled = mood != null || energy != null)
+            TextButton(onClick = { onDone(null, null) }) { Text("Skip", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
@@ -150,14 +161,16 @@ private fun ScaleRow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(low, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(56.dp))
             Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceEvenly) {
+                val c = LocalDataColors.current
+                // Low to high runs pink, orange, yellow, lime, green.
+                val scale = listOf(c.screenHue.start, c.stepsHue.start, c.nowHue.start, c.pickupsHue.start, c.goodHue.start)
                 (1..5).forEach { n ->
                     val on = value == n
                     Box(
                         Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                            .background(if (on) scale[n - 1] else scale[n - 1].copy(alpha = 0.16f))
                             .clickable { onPick(n) }
                             .semantics {
                                 contentDescription = "$label $n of 5"
@@ -165,7 +178,7 @@ private fun ScaleRow(
                             },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("$n", style = MaterialTheme.typography.labelLarge, color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$n", style = MaterialTheme.typography.labelLarge, color = if (on) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -184,7 +197,10 @@ fun NotificationAskPanel(
     onNotNow: () -> Unit,
 ) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onGranted() }
-    HeroContainer {
+    val hue = LocalDataColors.current.notificationsHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Notifications", hue, Icons.Rounded.NotificationsActive)
+        Spacer(Modifier.height(6.dp))
         Text("Want a heads-up when something stands out?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
         Text(
@@ -194,10 +210,10 @@ fun NotificationAskPanel(
         )
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
+            com.habitminer.ui.design.HueButton("Allow notifications", hue, {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) launcher.launch(Manifest.permission.POST_NOTIFICATIONS) else onGranted()
-            }) { Text("Allow notifications") }
-            TextButton(onClick = onNotNow) { Text("Not now") }
+            })
+            TextButton(onClick = onNotNow) { Text("Not now", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
@@ -208,8 +224,9 @@ fun WelcomeBackPanel(
     summary: com.habitminer.analytics.BreakSummary,
     onDismiss: () -> Unit,
 ) {
-    HeroContainer {
-        Text("Welcome back", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    val hue = LocalDataColors.current.freeHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Welcome back", hue, Icons.Rounded.WavingHand)
         Spacer(Modifier.height(6.dp))
         Text(summary.headline, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
@@ -220,7 +237,7 @@ fun WelcomeBackPanel(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(10.dp))
-        FilledTonalButton(onClick = onDismiss) { Text("Thanks") }
+        com.habitminer.ui.design.HueTonalButton("Thanks", hue, onDismiss)
     }
 }
 
@@ -248,8 +265,9 @@ fun UpdatePanel(
     onInstall: () -> Unit,
     onSkip: () -> Unit,
 ) {
-    HeroContainer {
-        Text("Update available", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    val hue = LocalDataColors.current.goodHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Update available", hue, Icons.Rounded.SystemUpdate)
         Spacer(Modifier.height(6.dp))
         Text("Version ${update.versionName}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         if (update.notes.isNotBlank()) {
@@ -263,15 +281,15 @@ fun UpdatePanel(
             com.habitminer.update.InstallState.Verifying ->
                 Text("Checking the file…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             is com.habitminer.update.InstallState.Ready ->
-                FilledTonalButton(onClick = onInstall) { Text("Install") }
+                com.habitminer.ui.design.HueButton("Install", hue, onInstall)
             else -> {
                 if (install is com.habitminer.update.InstallState.Failed) {
                     Text(install.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(8.dp))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = onDownload) { Text(if (install is com.habitminer.update.InstallState.Failed) "Try again" else "Download") }
-                    androidx.compose.material3.TextButton(onClick = onSkip) { Text("Skip this version") }
+                    com.habitminer.ui.design.HueButton(if (install is com.habitminer.update.InstallState.Failed) "Try again" else "Download", hue, onDownload)
+                    androidx.compose.material3.TextButton(onClick = onSkip) { Text("Skip this version", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }

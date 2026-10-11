@@ -23,6 +23,32 @@ data class PickupStats(
  * or self-initiated. A classic interruption metric from mobile HCI research.
  */
 object PickupAnalyzer {
+    /**
+     * Pickups on a usual day: the median over the last [days] full days before [today], leaving
+     * out days you set aside and days with no pickups at all (the phone was off or not
+     * recording). Null with fewer than three days to go on.
+     */
+    fun usualPerDay(
+        unlocks: List<Long>,
+        today: java.time.LocalDate,
+        zone: java.time.ZoneId,
+        days: Int = 14,
+        excluded: Set<java.time.LocalDate> = emptySet(),
+    ): Int? {
+        val from = today.minusDays(days.toLong())
+        val counts =
+            unlocks.asSequence()
+                .map { TimeUtil.dateOf(it, zone) }
+                .filter { !it.isBefore(from) && it.isBefore(today) && it !in excluded }
+                .groupingBy { it }
+                .eachCount()
+                .values
+                .sorted()
+        if (counts.size < 3) return null
+        val mid = counts.size / 2
+        return if (counts.size % 2 == 1) counts[mid] else (counts[mid - 1] + counts[mid] + 1) / 2
+    }
+
     const val NOTIFICATION_WINDOW_MS = 2 * TimeUtil.MINUTE
     private const val FIRST_APP_WINDOW_MS = TimeUtil.MINUTE
     private const val QUICK_CHECK_MS = 30_000L

@@ -26,6 +26,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.DirectionsWalk
+import androidx.compose.material.icons.rounded.BatteryChargingFull
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.DonutLarge
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Sensors
+import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.BatteryStd
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material3.FilledTonalButton
@@ -94,13 +108,13 @@ fun StatusScreen(
                     else -> Triple(true, "Everything is working", "Usage and surroundings are being recorded on this phone.")
                 }
             Spacer(Modifier.height(8.dp))
-            HeroContainer {
+            HeroContainer(accent = if (ok) colors.goodHue.start else colors.alert) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         if (ok) Icons.Rounded.CheckCircle else Icons.Rounded.ErrorOutline,
                         contentDescription = null,
-                        tint = if (ok) colors.good else colors.alert,
-                        modifier = Modifier.size(28.dp),
+                        tint = if (ok) colors.goodHue.text else colors.alert,
+                        modifier = Modifier.size(40.dp),
                     )
                     Spacer(Modifier.width(12.dp))
                     Column {
@@ -126,25 +140,43 @@ fun StatusScreen(
                 com.habitminer.ui.RestrictedSettingsGuide("notification access", modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 8.dp))
             }
         }
-        item(key = "check-header") { SectionHeader("Checklist") }
+        item(key = "check-header") { SectionHeader("Checklist", icon = Icons.Rounded.Checklist, iconColor = colors.goodHue.start) }
         item(key = "checklist") {
             RowGroup {
-                row { CheckRow("Usage access", "Which apps you use and when", state.hasUsagePermission) { nav.openPermissions() } }
-                row { CheckRow("Notification access", "Counts notifications per app, never their text", state.hasNotificationPermission) { nav.openPermissions() } }
-                row { CheckRow("Physical activity", "Steps, to tell walking from sitting", state.stepPermission) { nav.openPermissions() } }
+                row { CheckRow("Usage access", "Which apps you use and when", state.hasUsagePermission, Icons.Rounded.BarChart, colors.screenHue.start) { nav.openPermissions() } }
                 row {
-                    CheckRow("Battery optimisation off", "Lets readings run in the background", !optimised) { requestUnrestrictedBattery(context) }
+                    CheckRow("Notification access", "Counts notifications per app, never their text", state.hasNotificationPermission, Icons.Rounded.Notifications, colors.notificationsHue.start) {
+                        nav.openPermissions()
+                    }
                 }
-                row { CheckRow("Background monitoring", if (state.isMonitoringServiceActive) "Running" else "Stopped", state.isMonitoringServiceActive) { requestUnrestrictedBattery(context) } }
+                row { CheckRow("Physical activity", "Steps, to tell walking from sitting", state.stepPermission, Icons.Rounded.DirectionsWalk, colors.stepsHue.start) { nav.openPermissions() } }
+                row {
+                    CheckRow("Battery optimisation off", "Lets readings run in the background", !optimised, Icons.Rounded.BatteryChargingFull, colors.goodHue.start) {
+                        requestUnrestrictedBattery(context)
+                    }
+                }
+                row {
+                    CheckRow(
+                        "Background monitoring",
+                        if (state.isMonitoringServiceActive) "Running" else "Stopped",
+                        state.isMonitoringServiceActive,
+                        Icons.Rounded.Sync,
+                        colors.freeHue.start,
+                    ) { requestUnrestrictedBattery(context) }
+                }
                 row {
                     ListRow(
                         "Last data received",
+                        icon = Icons.Rounded.Schedule,
+                        iconColor = colors.sleepHue.start,
                         supporting = state.latestContext?.timestamp?.let { "Reading ${Labels.age(it)}" + (state.lastUsageUpdate?.let { u -> ", app use ${Labels.age(u)}" } ?: "") } ?: "No readings yet",
                     )
                 }
                 row {
                     ListRow(
                         "Coverage today",
+                        icon = Icons.Rounded.DonutLarge,
+                        iconColor = colors.pickupsHue.start,
                         supporting = "Hours with at least one reading",
                         trailingText = "$hoursWithReading of $hoursSoFar",
                     )
@@ -176,6 +208,8 @@ fun StatusScreen(
         item(key = "cost-header") {
             SectionHeader(
                 "What it costs",
+                icon = Icons.Rounded.Bolt,
+                iconColor = colors.stepsHue.start,
                 info =
                     "Each reading switches sensors on for about 3 seconds. Readings run every 5 minutes when you're moving with the screen on, " +
                         "every 15 when the screen is on or charging, and every 30 when the phone is idle. Between readings the phone is free to sleep.",
@@ -184,14 +218,22 @@ fun StatusScreen(
         item(key = "cost") {
             val mode = state.sensingModeName?.let { runCatching { SensingMode.valueOf(it) }.getOrNull() }
             RowGroup {
-                row { ListRow("Sensing mode", supporting = mode?.explanation, trailingText = mode?.let { "every ${it.intervalMs / 60_000} min" } ?: "starting") }
-                row { ListRow("Sensors switched on today", trailingText = formatSeconds(state.sensingMsToday)) }
-                row { ListRow("Readings today", trailingText = "${state.todaySnapshots.size}") }
+                row {
+                    ListRow(
+                        "Sensing mode",
+                        supporting = mode?.explanation,
+                        trailingText = mode?.let { "every ${it.intervalMs / 60_000} min" } ?: "starting",
+                        icon = Icons.Rounded.Tune,
+                        iconColor = colors.freeHue.start,
+                    )
+                }
+                row { ListRow("Sensors switched on today", trailingText = formatSeconds(state.sensingMsToday), icon = Icons.Rounded.Sensors, iconColor = colors.stepsHue.start) }
+                row { ListRow("Readings today", trailingText = "${state.todaySnapshots.size}", icon = Icons.Rounded.Timeline, iconColor = colors.pickupsHue.start) }
             }
         }
         item(key = "battery") { BatteryUse(state.selfHealth) }
 
-        item(key = "sensors-header") { SectionHeader("Sensors") }
+        item(key = "sensors-header") { SectionHeader("Sensors", icon = Icons.Rounded.Sensors, iconColor = colors.freeHue.start) }
         item(key = "sensors") {
             val sensors = sensorStatuses(sensorManager, state.latestSensorContext, state.stepsToday, state.stepPermission)
             RowGroup {
@@ -233,15 +275,19 @@ private fun CheckRow(
     title: String,
     detail: String,
     ok: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconColor: Color,
     onFix: () -> Unit,
 ) {
     val colors = LocalDataColors.current
     ListRow(
         title,
         supporting = detail,
+        icon = icon,
+        iconColor = iconColor,
         trailing = {
             if (ok) {
-                Icon(Icons.Rounded.CheckCircle, contentDescription = "Done", tint = colors.good, modifier = Modifier.size(22.dp))
+                Icon(Icons.Rounded.CheckCircle, contentDescription = "Done", tint = colors.goodHue.text, modifier = Modifier.size(24.dp))
             } else {
                 Text("Fix", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
@@ -252,7 +298,7 @@ private fun CheckRow(
 
 @Composable
 private fun StatusDot(color: Color) {
-    androidx.compose.foundation.layout.Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+    androidx.compose.foundation.layout.Box(Modifier.size(12.dp).clip(CircleShape).background(color))
 }
 
 private data class SensorStatus(
@@ -352,6 +398,8 @@ private fun BatteryUse(week: List<com.habitminer.analytics.PowerModel.DayUse>) {
     val share = today.sharePct
     SectionHeader(
         "Its own battery use",
+        icon = Icons.Rounded.BatteryStd,
+        iconColor = colors.goodHue.start,
         info =
             "An estimate, worked out the way Android's battery screen does it: how long the sensors and processor ran, times the current they draw. " +
                 "Android flags an app that keeps the phone awake for 2 hours or more in a day.",
@@ -367,6 +415,9 @@ private fun BatteryUse(week: List<com.habitminer.analytics.PowerModel.DayUse>) {
                         "Your phone doesn't report its battery size, so only mAh is shown"
                     },
                 trailingText = if (share != null) "about %.1f%%".format(share) else "%.0f mAh".format(today.totalMah),
+                trailingColor = colors.goodHue.text,
+                icon = Icons.Rounded.BatteryChargingFull,
+                iconColor = colors.goodHue.start,
             )
         }
         row {
@@ -374,21 +425,24 @@ private fun BatteryUse(week: List<com.habitminer.analytics.PowerModel.DayUse>) {
                 "Kept your phone awake",
                 supporting = "Android's line is $limitMin min a day",
                 trailingText = if (awakeMin < 1) "under 1 min" else "$awakeMin min",
-                trailing =
-                    if (today.excessiveWakelocks) {
-                        { StatusDot(colors.alert) }
-                    } else {
-                        null
-                    },
+                trailingColor = if (today.excessiveWakelocks) colors.alert else null,
+                icon = Icons.Rounded.Bedtime,
+                iconColor = colors.sleepHue.start,
             )
         }
-        row {
-            val avg = week.filter { it.wakelockMs > 0 }.map { it.wakelockMs / 60_000.0 }.average()
-            ListRow(
-                "Awake time, 7 days",
-                supporting = week.joinToString("  ") { "%d".format(it.wakelockMs / 60_000) } + " min",
-                trailingText = if (avg.isNaN()) "" else "avg %.0f min".format(avg),
-            )
+        if (week.size >= 2) {
+            row {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Text("Awake time, last 7 days", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(10.dp))
+                    com.habitminer.ui.design.MiniBars(
+                        values = week.map { it.wakelockMs / 60_000f },
+                        labels = week.map { it.date.dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, Locale.getDefault()) },
+                        hue = colors.sleepHue,
+                        height = 64.dp,
+                    )
+                }
+            }
         }
     }
 }

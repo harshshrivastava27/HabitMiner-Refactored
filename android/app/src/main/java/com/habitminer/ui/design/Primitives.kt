@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -72,7 +73,7 @@ fun ScreenTitle(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 title,
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.semantics { heading() },
             )
@@ -92,11 +93,18 @@ fun SectionHeader(
     info: String? = null,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
+    /** A small coloured tile before the title, naming what the section measures. */
+    icon: ImageVector? = null,
+    iconColor: Color? = null,
 ) {
     Row(
         modifier = modifier.fillMaxWidth().padding(start = ScreenPadding, end = 8.dp, top = 28.dp, bottom = 8.dp).heightIn(min = 32.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            IconTile(icon, iconColor ?: MaterialTheme.colorScheme.primary, size = 26.dp)
+            Spacer(Modifier.width(10.dp))
+        }
         Text(
             title,
             style = MaterialTheme.typography.titleMedium,
@@ -104,7 +112,11 @@ fun SectionHeader(
             modifier = Modifier.weight(1f).semantics { heading() },
         )
         if (info != null) InfoButton(title, info)
-        if (actionLabel != null && onAction != null) TextButton(onClick = onAction) { Text(actionLabel) }
+        if (actionLabel != null && onAction != null) {
+            TextButton(onClick = onAction) {
+                Text(actionLabel, color = iconColor?.let { tintForText(it) } ?: MaterialTheme.colorScheme.primary)
+            }
+        }
     }
 }
 
@@ -147,40 +159,52 @@ fun InfoSheet(
 fun HeroContainer(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    /** Tints the card with the colour of what it's about (sleep, screen time…). */
+    accent: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val dark = com.habitminer.ui.theme.LocalIsDark.current
+    val background = accent?.let { it.copy(alpha = if (dark) 0.16f else 0.08f).compositeOver(color) } ?: color
     Column(
         modifier =
             modifier
                 .padding(horizontal = 12.dp)
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.extraLarge)
-                .background(color)
+                .background(background)
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         content = content,
     )
 }
 
-/** Rows grouped into one rounded block: outer corners large, inner corners small. */
+/** A hue that reads as text on the current background (a vivid fill can be too light on white). */
+@Composable
+fun tintForText(color: Color): Color {
+    val dark = com.habitminer.ui.theme.LocalIsDark.current
+    return if (dark) color else androidx.compose.ui.graphics.lerp(color, Color.Black, 0.12f)
+}
+
+/** Rows grouped into one rounded card, separated by hairlines. */
 @Composable
 fun RowGroup(
     modifier: Modifier = Modifier,
     content: RowGroupScope.() -> Unit,
 ) {
     val scope = RowGroupScope().apply(content)
+    val divider = MaterialTheme.colorScheme.outlineVariant
     Column(
-        modifier = modifier.padding(horizontal = 12.dp).fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier =
+            modifier
+                .padding(horizontal = 12.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         scope.rows.forEachIndexed { index, row ->
-            val shape = groupShape(index, scope.rows.size)
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(shape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow),
-            ) { row() }
+            if (index > 0) {
+                Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(0.7.dp).background(divider))
+            }
+            Box(modifier = Modifier.fillMaxWidth()) { row() }
         }
     }
 }
@@ -190,20 +214,6 @@ class RowGroupScope {
 
     fun row(content: @Composable () -> Unit) {
         rows += content
-    }
-}
-
-private fun groupShape(
-    index: Int,
-    count: Int,
-): RoundedCornerShape {
-    val big = 16.dp
-    val small = 4.dp
-    return when {
-        count == 1 -> RoundedCornerShape(big)
-        index == 0 -> RoundedCornerShape(topStart = big, topEnd = big, bottomStart = small, bottomEnd = small)
-        index == count - 1 -> RoundedCornerShape(topStart = small, topEnd = small, bottomStart = big, bottomEnd = big)
-        else -> RoundedCornerShape(small)
     }
 }
 
@@ -218,7 +228,19 @@ fun ListRow(
     trailingText: String? = null,
     onClick: (() -> Unit)? = null,
     maxSupportingLines: Int = 3,
+    /** A coloured icon tile in front, when [leading] isn't given. */
+    icon: ImageVector? = null,
+    iconColor: Color? = null,
+    /** Colour for [trailingText], e.g. pink for more and cyan for less. */
+    trailingColor: Color? = null,
 ) {
+    val tileColor = iconColor ?: MaterialTheme.colorScheme.primary
+    val lead: (@Composable () -> Unit)? =
+        when {
+            leading != null -> leading
+            icon != null -> @Composable { IconTile(icon, tileColor) }
+            else -> null
+        }
     Row(
         modifier =
             modifier
@@ -228,8 +250,8 @@ fun ListRow(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (leading != null) {
-            leading()
+        if (lead != null) {
+            lead()
             Spacer(Modifier.width(14.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
@@ -246,7 +268,7 @@ fun ListRow(
         }
         if (trailingText != null) {
             Spacer(Modifier.width(12.dp))
-            Text(trailingText, style = com.habitminer.ui.theme.NumberStyles.small, color = MaterialTheme.colorScheme.onSurface)
+            Text(trailingText, style = com.habitminer.ui.theme.NumberStyles.small, color = trailingColor ?: MaterialTheme.colorScheme.onSurface)
         }
         if (trailing != null) {
             Spacer(Modifier.width(8.dp))

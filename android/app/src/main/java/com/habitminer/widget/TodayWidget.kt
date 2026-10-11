@@ -33,8 +33,8 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.habitminer.analytics.Format
 import com.habitminer.ui.MainActivity
-import com.habitminer.ui.theme.PineDark
-import com.habitminer.ui.theme.PineLight
+import com.habitminer.ui.theme.VividDark
+import com.habitminer.ui.theme.VividLight
 
 /**
  * Today on the home screen: phone time against your usual by now, pickups, and (when wide
@@ -49,7 +49,7 @@ class TodayWidget : GlanceAppWidget() {
     ) {
         val data = WidgetStore.load(context)
         provideContent {
-            GlanceTheme(colors = ColorProviders(light = PineLight, dark = PineDark)) { Content(data) }
+            GlanceTheme(colors = ColorProviders(light = VividLight, dark = VividDark)) { Content(data) }
         }
     }
 

@@ -2,6 +2,25 @@
 
 package com.habitminer.ui
 
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.SelfImprovement
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.DirectionsRun
+import androidx.compose.material.icons.rounded.DirectionsWalk
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.DeleteForever
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Autorenew
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -87,13 +106,14 @@ fun SettingsScreen(
         }
 
         item(key = "appearance") {
-            SectionHeader("Appearance")
+            SectionHeader("Appearance", icon = Icons.Rounded.Palette, iconColor = com.habitminer.ui.theme.LocalDataColors.current.notificationsHue.start)
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding)) {
                 ThemeMode.entries.forEachIndexed { i, mode ->
                     SegmentedButton(
                         selected = appearance.themeMode == mode,
                         onClick = { onThemeMode(mode) },
                         shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size),
+                        colors = com.habitminer.ui.design.hueSegmentedColors(com.habitminer.ui.theme.LocalDataColors.current.notificationsHue),
                     ) { Text(mode.label) }
                 }
             }
@@ -116,7 +136,7 @@ fun SettingsScreen(
         }
 
         item(key = "notifications") {
-            SectionHeader("Questions and reminders", info = "These share one limit of three a day, so turning more on doesn't mean more interruptions.")
+            SectionHeader("Questions and reminders", icon = Icons.Rounded.NotificationsActive, iconColor = com.habitminer.ui.theme.LocalDataColors.current.screenHue.start, info = "These share one limit of three a day, so turning more on doesn't mean more interruptions.")
             RowGroup {
                 row {
                     ToggleRow(
@@ -169,6 +189,8 @@ fun SettingsScreen(
         item(key = "updates") {
             SectionHeader(
                 "App updates",
+                icon = Icons.Rounded.SystemUpdate,
+                iconColor = com.habitminer.ui.theme.LocalDataColors.current.freeHue.start,
                 info =
                     "Once a day HabitMiner Extended asks GitHub whether a new version is out. That is the only time it uses the network, " +
                         "and it sends nothing about you. Updates are checked against a checksum and the app's signing key before you're asked to install.",
@@ -179,12 +201,16 @@ fun SettingsScreen(
                         "Check for updates",
                         "Daily, in the background. Turn off to update only by hand.",
                         state.updateChecks,
+                        icon = Icons.Rounded.Autorenew,
+                        iconColor = com.habitminer.ui.theme.LocalDataColors.current.freeHue.start,
                         onChange = viewModel::setUpdateChecks,
                     )
                 }
                 row {
                     ListRow(
                         "Version ${state.installedVersion}",
+                        icon = Icons.Rounded.SystemUpdate,
+                        iconColor = com.habitminer.ui.theme.LocalDataColors.current.goodHue.start,
                         supporting =
                             when {
                                 state.update != null -> "${state.update.versionName} is available, see Today"
@@ -202,6 +228,8 @@ fun SettingsScreen(
         item(key = "data") {
             SectionHeader(
                 "Your data",
+                icon = Icons.Rounded.Storage,
+                iconColor = com.habitminer.ui.theme.LocalDataColors.current.goodHue.start,
                 info =
                     "Everything HabitMiner records stays on this phone. Nothing is sent to a server.\n\n" +
                         "Export makes a ZIP of CSV files you can open in a spreadsheet or analyse in Python. Import merges an export back in " +
@@ -215,20 +243,31 @@ fun SettingsScreen(
                         selected = days == state.retentionDays,
                         onClick = { viewModel.setRetentionDays(days) },
                         shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                        colors = com.habitminer.ui.design.hueSegmentedColors(com.habitminer.ui.theme.LocalDataColors.current.goodHue),
                     ) { Text("$days days") }
                 }
             }
             Spacer(Modifier.height(8.dp))
             RowGroup {
-                row { ListRow("Export data", supporting = "A ZIP of CSV files to share or analyse", onClick = { viewModel.exportDataToCsv() }) }
+                row {
+                    ListRow(
+                        "Export data",
+                        supporting = "A ZIP of CSV files to share or analyse",
+                        onClick = { viewModel.exportDataToCsv() },
+                        icon = Icons.Rounded.IosShare,
+                        iconColor = com.habitminer.ui.theme.LocalDataColors.current.goodHue.start,
+                    )
+                }
                 row {
                     val ctx = LocalContext.current
                     val prefs = remember { ctx.getSharedPreferences(com.habitminer.data.PrefsKeys.PREFS_NAME, android.content.Context.MODE_PRIVATE) }
                     var priv by remember { mutableStateOf(prefs.getBoolean(com.habitminer.data.PrefsKeys.EXPORT_PRIVATE, false)) }
                     ToggleRow(
-                        "Hide app names in exports",
-                        "Apps become short codes, and place names and text are left out. Good for sharing with others.",
-                        priv,
+                        icon = Icons.Rounded.VisibilityOff,
+                        iconColor = com.habitminer.ui.theme.LocalDataColors.current.sleepHue.start,
+                        title = "Hide app names in exports",
+                        description = "Apps become short codes, and place names and text are left out. Good for sharing with others.",
+                        checked = priv,
                         onChange = {
                             priv = it
                             prefs.edit().putBoolean(com.habitminer.data.PrefsKeys.EXPORT_PRIVATE, it).apply()
@@ -238,11 +277,21 @@ fun SettingsScreen(
                 row {
                     ListRow(
                         "Import an export",
+                        icon = Icons.Rounded.Download,
+                        iconColor = com.habitminer.ui.theme.LocalDataColors.current.freeHue.start,
                         supporting = "From this app or the original HabitMiner",
                         onClick = { importLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
                     )
                 }
-                row { ListRow("Delete all data", supporting = "Usage, readings, routines and labels", onClick = { confirmClear = true }) }
+                row {
+                    ListRow(
+                        "Delete all data",
+                        supporting = "Usage, readings, routines and labels",
+                        onClick = { confirmClear = true },
+                        icon = Icons.Rounded.DeleteForever,
+                        iconColor = com.habitminer.ui.theme.LocalDataColors.current.alert,
+                    )
+                }
             }
             state.exportMessage?.let { msg ->
                 LaunchedEffect(msg) {
@@ -254,7 +303,7 @@ fun SettingsScreen(
         }
 
         item(key = "about") {
-            SectionHeader("About")
+            SectionHeader("About", icon = Icons.Rounded.Info, iconColor = com.habitminer.ui.theme.LocalDataColors.current.sleepHue.start)
             val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "" }
             RowGroup {
                 row { ListRow("HabitMiner Extended", supporting = "Version $version") }
@@ -292,12 +341,16 @@ fun ToggleRow(
     description: String,
     checked: Boolean,
     enabled: Boolean = true,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    iconColor: androidx.compose.ui.graphics.Color? = null,
     onChange: (Boolean) -> Unit,
 ) {
     ListRow(
         title,
         supporting = description,
         maxSupportingLines = 4,
+        icon = icon,
+        iconColor = iconColor,
         trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
         onClick = if (enabled) ({ onChange(!checked) }) else null,
     )
@@ -319,6 +372,8 @@ fun MindfulSection(onOpenGoals: () -> Unit) {
     val focusUntil = remember(tick) { com.habitminer.mindful.MindfulPause.focusUntil(context) }
     SectionHeader(
         "Mindful pause",
+        icon = Icons.Rounded.SelfImprovement,
+        iconColor = com.habitminer.ui.theme.LocalDataColors.current.pickupsHue.start,
         info =
             "Before an app from your Use less list opens, a short breathing screen asks whether you want it now. You can always open it. " +
                 "Friction like this cut social media use by about a third in a field study, without blocking anything.\n\n" +
@@ -410,6 +465,8 @@ fun RecordingSection(
     var askBreak by remember { mutableStateOf(false) }
     SectionHeader(
         "Recording",
+        icon = Icons.Rounded.RadioButtonChecked,
+        iconColor = com.habitminer.ui.theme.LocalDataColors.current.screenHue.start,
         info =
             "Pausing stops everything HabitMiner records, and what Android logs while paused isn't read back afterwards.\n\n" +
                 "A break keeps recording but sends no notifications, and the days are set aside so they don't change what counts as usual. " +
@@ -444,10 +501,10 @@ fun RecordingSection(
     }
     Note("What's recorded")
     RowGroup {
-        row { ToggleRow("Light and proximity", "Dark or bright, in a pocket or not; helps with sleep", rec.light, onChange = { v -> viewModel.setSources { it.copy(light = v) } }) }
-        row { ToggleRow("Motion", "Still or moving, from short accelerometer readings", rec.motion, onChange = { v -> viewModel.setSources { it.copy(motion = v) } }) }
-        row { ToggleRow("Steps", "From the phone's step counter", rec.steps, onChange = { v -> viewModel.setSources { it.copy(steps = v) } }) }
-        row { ToggleRow("Notification counts", "Which app notified you and whether you opened it, never the text", rec.notifications, onChange = { v -> viewModel.setSources { it.copy(notifications = v) } }) }
+        row { ToggleRow("Light and proximity", "Dark or bright, in a pocket or not; helps with sleep", rec.light, icon = Icons.Rounded.LightMode, iconColor = com.habitminer.ui.theme.LocalDataColors.current.nowHue.start, onChange = { v -> viewModel.setSources { it.copy(light = v) } }) }
+        row { ToggleRow("Motion", "Still or moving, from short accelerometer readings", rec.motion, icon = Icons.Rounded.DirectionsRun, iconColor = com.habitminer.ui.theme.LocalDataColors.current.stepsHue.start, onChange = { v -> viewModel.setSources { it.copy(motion = v) } }) }
+        row { ToggleRow("Steps", "From the phone's step counter", rec.steps, icon = Icons.Rounded.DirectionsWalk, iconColor = com.habitminer.ui.theme.LocalDataColors.current.stepsHue.start, onChange = { v -> viewModel.setSources { it.copy(steps = v) } }) }
+        row { ToggleRow("Notification counts", "Which app notified you and whether you opened it, never the text", rec.notifications, icon = Icons.Rounded.Notifications, iconColor = com.habitminer.ui.theme.LocalDataColors.current.notificationsHue.start, onChange = { v -> viewModel.setSources { it.copy(notifications = v) } }) }
         row {
             ToggleRow(
                 "Phone settings and activity",
@@ -514,6 +571,8 @@ fun InsightsSection(
     var pickingQuiet by remember { mutableStateOf<Boolean?>(null) } // true = start, false = end
     SectionHeader(
         "Insights",
+        icon = Icons.Rounded.Lightbulb,
+        iconColor = com.habitminer.ui.theme.LocalDataColors.current.nowHue.start,
         info =
             "Once a day HabitMiner looks for something that clearly stands out against your usual days: a much quieter or " +
                 "busier day, an app you used far more, a late night, a personal best. Most days nothing does, and then there's " +
@@ -620,6 +679,8 @@ fun SourcesSection(
         }
     SectionHeader(
         "Other sources",
+        icon = Icons.Rounded.Hub,
+        iconColor = com.habitminer.ui.theme.LocalDataColors.current.stepsHue.start,
         info =
             "Both are off by default and read-only. Nothing is copied off the phone.\n\n" +
                 "Health Connect: if a watch or sleep app records your sleep, those nights replace HabitMiner's guesses and teach it " +
@@ -699,6 +760,8 @@ fun PlacesSection(
         }
     SectionHeader(
         "Places",
+        icon = Icons.Rounded.Place,
+        iconColor = com.habitminer.ui.theme.LocalDataColors.current.freeHue.start,
         info =
             "Groups your phone use by place (home, campus) using the Wi-Fi network you're connected to. Only a scrambled ID is stored, " +
                 "never the network's name or your location. Android asks for location access to share the network ID, and location " +

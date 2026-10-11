@@ -98,6 +98,8 @@ data class InsightsBundle(
     val coverage: Map<java.time.LocalDate, Float> = emptyMap(),
     /** How your mood answers move with recent phone time. */
     val mood: com.habitminer.analytics.MoodPattern? = null,
+    /** Pickups on a usual day (median of recent days), for Today's ring. */
+    val usualPickups: Int? = null,
 ) {
     /** Today's sleep: the night that ended this morning plus today's confirmed naps. */
     val sleepToday: DailySleep? get() = sleepDays.lastOrNull()?.takeIf { it.date == java.time.Instant.ofEpochMilli(computedAt).atZone(ZoneId.systemDefault()).toLocalDate() }
@@ -235,6 +237,7 @@ class InsightsComputer
                 sleepNights = nights,
                 sleepSummary = SleepDetector.summarize(nights, zone),
                 pickupsToday = pickups,
+                usualPickups = PickupAnalyzer.usualPerDay(unlocks, today, zone, excluded = excluded),
                 contextInsights = ContextInsights.compute(weekSessions, weekSamples, zone),
                 heatmap = Heatmap.build(sessions, today, zone),
                 typicalDay = TypicalDay.build(sessions, today, now, zone, excluded),

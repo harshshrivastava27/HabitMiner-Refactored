@@ -3,6 +3,14 @@
 
 package com.habitminer.ui.goals
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.TrendingDown
+import androidx.compose.material.icons.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -84,7 +92,13 @@ fun GoalsScreen(
         }
 
         item(key = "target") {
-            SectionHeader("Daily phone time", info = "A target for your whole day. The week below shows the days you stayed under it.")
+            val hues = LocalDataColors.current
+            SectionHeader(
+                "Daily phone time",
+                info = "A target for your whole day. The week below shows the days you stayed under it.",
+                icon = Icons.Rounded.Timer,
+                iconColor = hues.screenHue.start,
+            )
             val options = listOf<Int?>(null, 120, 180, 240, 300)
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding)) {
                 options.forEachIndexed { i, m ->
@@ -92,6 +106,7 @@ fun GoalsScreen(
                         selected = goals.dailyTargetMinutes == m,
                         onClick = { onChange { it.copy(dailyTargetMinutes = m) } },
                         shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                        colors = com.habitminer.ui.design.hueSegmentedColors(hues.screenHue),
                     ) { Text(m?.let { "${it / 60}h" } ?: "None") }
                 }
             }
@@ -99,7 +114,7 @@ fun GoalsScreen(
         }
 
         item(key = "less") {
-            SectionHeader("Use less", actionLabel = "Choose", onAction = { picking = "less" })
+            SectionHeader("Use less", actionLabel = "Choose", onAction = { picking = "less" }, icon = Icons.Rounded.TrendingDown, iconColor = LocalDataColors.current.screenHue.start)
             if (goals.useLess.isEmpty()) {
                 Note("Pick apps you'd like to spend less time in. You'll see how this week compares with last week.")
             } else {
@@ -108,8 +123,11 @@ fun GoalsScreen(
         }
 
         item(key = "reminder") {
+            val remindHue = LocalDataColors.current.stepsHue
             SectionHeader(
                 "Remind me",
+                icon = Icons.Rounded.NotificationsActive,
+                iconColor = remindHue.start,
                 info = "A quiet notification after this long straight in a use-less app. It counts towards the three-a-day limit, so it never piles up.",
             )
             val options = listOf(0, 15, 30, 45)
@@ -120,13 +138,14 @@ fun GoalsScreen(
                         onClick = { onChange { it.copy(reminderMinutes = m) } },
                         shape = SegmentedButtonDefaults.itemShape(i, options.size),
                         enabled = goals.useLess.isNotEmpty() || m == 0,
+                        colors = com.habitminer.ui.design.hueSegmentedColors(remindHue),
                     ) { Text(if (m == 0) "Off" else "$m min") }
                 }
             }
         }
 
         item(key = "more") {
-            SectionHeader("Use more", actionLabel = "Choose", onAction = { picking = "more" })
+            SectionHeader("Use more", actionLabel = "Choose", onAction = { picking = "more" }, icon = Icons.Rounded.TrendingUp, iconColor = LocalDataColors.current.pickupsHue.start)
             if (goals.useMore.isEmpty()) {
                 Note("Pick apps you'd like to use more, like a language course or a reading app.")
             } else {
@@ -157,8 +176,9 @@ private fun IntentionPanel(
 ) {
     var editing by rememberSaveable(intention) { mutableStateOf(intention == null) }
     var text by rememberSaveable(intention) { mutableStateOf(intention.orEmpty()) }
-    HeroContainer {
-        Text("Today's intention", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    val hue = LocalDataColors.current.pickupsHue
+    HeroContainer(accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Today's intention", hue, Icons.Rounded.Flag)
         Spacer(Modifier.height(8.dp))
         if (editing) {
             OutlinedTextField(
@@ -175,16 +195,16 @@ private fun IntentionPanel(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
-            FilledTonalButton(onClick = {
+            com.habitminer.ui.design.HueButton("Set for today", hue, {
                 onSave(text)
                 editing = false
-            }, enabled = text.isNotBlank()) { Text("Set for today") }
+            }, enabled = text.isNotBlank())
         } else {
             Text(intention.orEmpty(), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { editing = true }) { Text("Change") }
-                TextButton(onClick = { onSave(null) }) { Text("Clear") }
+                TextButton(onClick = { editing = true }) { Text("Change", color = hue.text) }
+                TextButton(onClick = { onSave(null) }) { Text("Clear", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
     }
@@ -199,28 +219,52 @@ private fun TargetProgress(
     val colors = LocalDataColors.current
     val targetMs = targetMinutes * 60_000L
     val week = daily.takeLast(7)
-    val under = week.dropLast(1).count { it.second in 1..targetMs }
-    Column(modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 12.dp)) {
-        val left = targetMs - todayMs
-        Text(
-            if (left >= 0) "${Format.duration(left)} left today" else "${Format.duration(-left)} over today",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
+    val past = week.dropLast(1)
+    val under = past.count { it.second in 1..targetMs }
+    val left = targetMs - todayMs
+    Row(modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        com.habitminer.ui.design.ActivityRings(
+            listOf(com.habitminer.ui.design.RingSpec(todayMs.toFloat() / targetMs, colors.screenHue)),
+            size = 76.dp,
+            stroke = 13.dp,
+            description = "${Format.duration(todayMs)} of ${Format.duration(targetMs)} today",
         )
-        Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(colors.track)) {
-            Box(
-                Modifier.fillMaxWidth((todayMs.toFloat() / targetMs).coerceIn(0.01f, 1f)).fillMaxHeight().clip(RoundedCornerShape(4.dp))
-                    .background(if (left >= 0) colors.screen else colors.caution),
-            )
-        }
-        if (week.size > 1) {
-            Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                "Under target on $under of the last ${week.size - 1} days",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (left >= 0) "${Format.duration(left)} left today" else "${Format.duration(-left)} over today",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (left >= 0) colors.screenHue.text else colors.alert,
             )
+            if (past.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                // One dot a day: green when under the target, pink when over, grey without data.
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    past.forEach { (day, ms) ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val c =
+                                when {
+                                    ms <= 0L -> colors.track
+                                    ms <= targetMs -> colors.goodHue.start
+                                    else -> colors.screenHue.start
+                                }
+                            Box(Modifier.size(16.dp).clip(androidx.compose.foundation.shape.CircleShape).background(c))
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                day.dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, java.util.Locale.getDefault()),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Under target on $under of the last ${past.size} days",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

@@ -100,7 +100,7 @@ fun StoryContent(
                     repeat(story.cards.size) { i ->
                         Box(
                             Modifier.padding(3.dp).size(if (i == pager.currentPage) 8.dp else 6.dp).clip(CircleShape)
-                                .background(if (i == pager.currentPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                                .background(if (i == pager.currentPage) storyPalette(story.cards[i].kind).first else MaterialTheme.colorScheme.outlineVariant),
                         )
                     }
                 }
@@ -111,30 +111,44 @@ fun StoryContent(
     }
 }
 
+/** Each kind of card gets its own bold gradient and a readable text colour on it. */
+private fun storyPalette(kind: StoryCard.Kind): Triple<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color> {
+    val white = androidx.compose.ui.graphics.Color.White
+    fun c(v: Long) = androidx.compose.ui.graphics.Color(v)
+    return when (kind) {
+        StoryCard.Kind.WEEK -> Triple(c(0xFFD10A45), c(0xFFFF5C8A), white)
+        StoryCard.Kind.PHONE_FREE -> Triple(c(0xFF0369A1), c(0xFF06B6D4), white)
+        StoryCard.Kind.ROUTINE -> Triple(c(0xFF3F6212), c(0xFF84CC16), white)
+        StoryCard.Kind.CHANGE -> Triple(c(0xFFC2410C), c(0xFFF59E0B), white)
+        StoryCard.Kind.SLEEP -> Triple(c(0xFF3730A3), c(0xFF8B5CF6), white)
+        StoryCard.Kind.MILESTONES -> Triple(c(0xFFEAB308), c(0xFFFDE047), c(0xFF1F1A00))
+        StoryCard.Kind.EXPERIMENT -> Triple(c(0xFF7E22CE), c(0xFFD946EF), white)
+    }
+}
+
 @Composable
 private fun StoryCardView(card: StoryCard) {
-    val colors = LocalDataColors.current
+    val (from, to, onColor) = storyPalette(card.kind)
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 320.dp)
+                .heightIn(min = 340.dp)
                 .clip(MaterialTheme.shapes.extraLarge)
-                .background(if (card.kind == StoryCard.Kind.EXPERIMENT) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
+                .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(from, to)))
                 .padding(horizontal = 22.dp, vertical = 24.dp),
     ) {
-        val onColor = if (card.kind == StoryCard.Kind.EXPERIMENT) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-        Text(card.label, style = MaterialTheme.typography.labelLarge, color = if (card.kind == StoryCard.Kind.EXPERIMENT) onColor else MaterialTheme.colorScheme.primary)
+        Text(card.label, style = MaterialTheme.typography.titleSmall, color = onColor.copy(alpha = 0.85f))
         Spacer(Modifier.height(14.dp))
         val numeric = card.headline.firstOrNull()?.isDigit() == true
         Text(
             card.headline,
-            style = if (numeric) NumberStyles.hero.copy(fontSize = MaterialTheme.typography.displaySmall.fontSize) else MaterialTheme.typography.headlineMedium,
+            style = if (numeric) NumberStyles.hero.copy(fontSize = MaterialTheme.typography.displayMedium.fontSize) else MaterialTheme.typography.headlineMedium,
             color = onColor,
         )
         Spacer(Modifier.height(12.dp))
         if (card.body.isNotEmpty()) {
-            Text(card.body, style = MaterialTheme.typography.bodyLarge, color = if (card.kind == StoryCard.Kind.EXPERIMENT) onColor else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(card.body, style = MaterialTheme.typography.bodyLarge, color = onColor.copy(alpha = 0.9f))
         }
         if (card.bars.isNotEmpty()) {
             Spacer(Modifier.weight(1f, fill = false))
@@ -149,11 +163,11 @@ private fun StoryCardView(card: StoryCard) {
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Canvas(Modifier.fillMaxWidth().height(86.dp)) {
                             val h = size.height * (ms.toFloat() / max)
-                            drawRoundRect(colors.track, Offset.Zero, size, CornerRadius(4.dp.toPx()))
-                            drawRoundRect(colors.screen, Offset(0f, size.height - h), Size(size.width, h), CornerRadius(4.dp.toPx()))
+                            drawRoundRect(onColor.copy(alpha = 0.18f), Offset.Zero, size, CornerRadius(size.width / 2))
+                            if (h > 0f) drawRoundRect(onColor, Offset(0f, size.height - h), Size(size.width, h.coerceAtLeast(size.width)), CornerRadius(size.width / 2))
                         }
                         Spacer(Modifier.height(4.dp))
-                        Text(day, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(day, style = MaterialTheme.typography.labelSmall, color = onColor.copy(alpha = 0.85f), maxLines = 1)
                     }
                 }
             }
@@ -199,7 +213,7 @@ private fun MonthHeatmap(story: WeeklyStory) {
                             ms == null -> MaterialTheme.colorScheme.surface
                             else -> {
                                 val l = level(ms)
-                                if (l == 0) colors.track else colors.screen.copy(alpha = 0.2f + 0.2f * l)
+                                if (l == 0) colors.screenHue.start.copy(alpha = colors.trackAlpha * 0.5f) else androidx.compose.ui.graphics.lerp(colors.screenHue.start.copy(alpha = 0.35f), colors.screenHue.end, l / 4f)
                             }
                         }
                     Box(
@@ -221,7 +235,7 @@ private fun MonthHeatmap(story: WeeklyStory) {
             Text("Less", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
             (1..4).forEach { l ->
-                Box(Modifier.padding(horizontal = 2.dp).size(12.dp).clip(RoundedCornerShape(3.dp)).background(colors.screen.copy(alpha = 0.2f + 0.2f * l)))
+                Box(Modifier.padding(horizontal = 2.dp).size(12.dp).clip(RoundedCornerShape(3.dp)).background(androidx.compose.ui.graphics.lerp(colors.screenHue.start.copy(alpha = 0.35f), colors.screenHue.end, l / 4f)))
             }
             Spacer(Modifier.width(6.dp))
             Text("More", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

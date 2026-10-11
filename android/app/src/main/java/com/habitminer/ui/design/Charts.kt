@@ -35,7 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -97,7 +99,7 @@ private fun AxisRow(
 fun DayRibbonChart(
     ribbon: DayRibbon,
     modifier: Modifier = Modifier,
-    height: Dp = 92.dp,
+    height: Dp = 108.dp,
 ) {
     val colors = LocalDataColors.current
     val reduced = rememberReducedMotion()
@@ -114,7 +116,7 @@ fun DayRibbonChart(
     Column(modifier = modifier.padding(horizontal = ScreenPadding)) {
         Canvas(modifier = Modifier.fillMaxWidth().height(height).semantics { contentDescription = description }) {
             val w = size.width
-            val sleepH = 4.dp.toPx()
+            val sleepH = 5.dp.toPx()
             val chartH = size.height - sleepH - 6.dp.toPx()
             val slot = w / 24f
             val gap = slot * 0.18f
@@ -136,10 +138,10 @@ fun DayRibbonChart(
                 if (local <= 0f) continue
                 val top = y(m * local)
                 drawRoundRect(
-                    color = colors.screen,
+                    brush = Brush.verticalGradient(listOf(colors.screenHue.end, colors.screenHue.start), startY = top, endY = chartH),
                     topLeft = Offset(h * slot + gap / 2, top),
                     size = Size(slot - gap, chartH - top),
-                    cornerRadius = CornerRadius(3.dp.toPx()),
+                    cornerRadius = CornerRadius(4.dp.toPx()),
                 )
             }
 
@@ -162,7 +164,7 @@ fun DayRibbonChart(
             val bandTop = size.height - sleepH
             ribbon.sleep.forEach { (s, e) ->
                 drawRoundRect(
-                    colors.sleep,
+                    Brush.horizontalGradient(listOf(colors.sleepHue.start, colors.sleepHue.end), startX = w * s / 1440f, endX = w * e / 1440f),
                     Offset(w * s / 1440f, bandTop),
                     Size((w * (e - s) / 1440f).coerceAtLeast(2f), sleepH),
                     CornerRadius(sleepH / 2),
@@ -171,8 +173,8 @@ fun DayRibbonChart(
 
             // Now.
             val nx = w * ribbon.nowMinute / 1440f
-            drawLine(colors.now, Offset(nx, 4.dp.toPx()), Offset(nx, chartH), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-            drawCircle(colors.now, radius = 4.dp.toPx(), center = Offset(nx, 4.dp.toPx()))
+            drawLine(colors.nowHue.text, Offset(nx, 5.dp.toPx()), Offset(nx, chartH), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            drawCircle(colors.nowHue.text, radius = 5.dp.toPx(), center = Offset(nx, 5.dp.toPx()))
         }
         Spacer(Modifier.height(6.dp))
         AxisRow(hourAxisLabels(listOf(0, 6, 12, 18, 24)))
@@ -191,6 +193,7 @@ fun SleepLane(
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
     val colors = LocalDataColors.current
+    val background = MaterialTheme.colorScheme.background
     // Window: an hour before sleep to an hour after waking, widened to local 3-hour marks.
     val hour = java.time.temporal.ChronoUnit.HOURS
     val startLocal =
@@ -210,20 +213,21 @@ fun SleepLane(
         Canvas(modifier = Modifier.fillMaxWidth().height(28.dp).semantics { contentDescription = description }) {
             val w = size.width
             fun x(t: Long) = w * ((t - windowStart) / span).coerceIn(0f, 1f)
-            drawRoundRect(colors.track, Offset.Zero, size, CornerRadius(6.dp.toPx()))
+            val laneTrack = colors.sleepHue.start.copy(alpha = colors.trackAlpha * 0.7f)
+            drawRoundRect(laneTrack, Offset.Zero, size, CornerRadius(size.height / 2))
             drawRoundRect(
-                colors.sleep,
+                Brush.horizontalGradient(listOf(colors.sleepHue.start, colors.sleepHue.end), startX = x(night.sleepStart), endX = x(night.wakeTime)),
                 Offset(x(night.sleepStart), 0f),
                 Size(x(night.wakeTime) - x(night.sleepStart), size.height),
-                CornerRadius(5.dp.toPx()),
+                CornerRadius(size.height / 2),
             )
             night.briefWakes.forEach { wk ->
                 val gx = x(wk.start)
-                drawRect(colors.track, Offset(gx, 0f), Size((x(wk.end) - gx).coerceAtLeast(2.dp.toPx()), size.height))
+                drawRect(laneTrack.compositeOver(background), Offset(gx, 0f), Size((x(wk.end) - gx).coerceAtLeast(2.dp.toPx()), size.height))
             }
             naps.forEach { (s, e) ->
                 if (e > windowStart && s < windowEnd) {
-                    drawRoundRect(colors.nap, Offset(x(s), 0f), Size(x(e) - x(s), size.height), CornerRadius(5.dp.toPx()))
+                    drawRoundRect(colors.nap, Offset(x(s), 0f), Size(x(e) - x(s), size.height), CornerRadius(size.height / 2))
                 }
             }
         }
@@ -241,7 +245,7 @@ fun BarList(
     modifier: Modifier = Modifier,
     max: Long = items.maxOfOrNull { it.value } ?: 1L,
 ) {
-    Column(modifier = modifier.padding(horizontal = ScreenPadding), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier = modifier.padding(horizontal = ScreenPadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         items.forEach { item ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 item.leading?.let {
@@ -260,14 +264,14 @@ fun BarList(
                         )
                         Text(item.valueText, style = NumberStyles.small, color = MaterialTheme.colorScheme.onSurface)
                     }
-                    Spacer(Modifier.height(5.dp))
-                    Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(LocalDataColors.current.track)) {
+                    Spacer(Modifier.height(6.dp))
+                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(item.color.copy(alpha = LocalDataColors.current.trackAlpha * 0.8f))) {
                         Box(
                             Modifier
-                                .fillMaxWidth((item.value.toFloat() / max.coerceAtLeast(1L)).coerceIn(0.02f, 1f))
+                                .fillMaxWidth((item.value.toFloat() / max.coerceAtLeast(1L)).coerceIn(0.03f, 1f))
                                 .fillMaxHeight()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(item.color),
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Brush.horizontalGradient(listOf(item.color, androidx.compose.ui.graphics.lerp(item.color, Color.White, 0.25f)))),
                         )
                     }
                 }
@@ -298,7 +302,7 @@ fun SleepWeekColumns(
         Canvas(modifier = Modifier.fillMaxWidth().height(132.dp).semantics { contentDescription = "Sleep per day: $description" }) {
             val n = days.size.coerceAtLeast(1)
             val slot = size.width / n
-            val barW = slot * 0.46f
+            val barW = slot * 0.52f
             val h = size.height
             usualMs?.let { u ->
                 val yy = h - h * (u / scale)
@@ -306,11 +310,19 @@ fun SleepWeekColumns(
             }
             days.forEachIndexed { i, d ->
                 val left = i * slot + (slot - barW) / 2
-                drawRoundRect(colors.track, Offset(left, 0f), Size(barW, h), CornerRadius(4.dp.toPx()))
+                val r = CornerRadius(barW / 2)
+                drawRoundRect(colors.sleepHue.start.copy(alpha = colors.trackAlpha * 0.7f), Offset(left, 0f), Size(barW, h), r)
                 val nightH = h * (d.nightMs / scale)
                 val napH = h * (d.napMs / scale)
-                if (nightH > 0f) drawRoundRect(colors.sleep, Offset(left, h - nightH), Size(barW, nightH), CornerRadius(4.dp.toPx()))
-                if (napH > 0f) drawRoundRect(colors.nap, Offset(left, h - nightH - napH - 2.dp.toPx()), Size(barW, napH), CornerRadius(4.dp.toPx()))
+                if (nightH > 0f) {
+                    drawRoundRect(
+                        Brush.verticalGradient(listOf(colors.sleepHue.end, colors.sleepHue.start), startY = h - nightH, endY = h),
+                        Offset(left, h - nightH),
+                        Size(barW, nightH),
+                        r,
+                    )
+                }
+                if (napH > 0f) drawRoundRect(colors.nap, Offset(left, h - nightH - napH - 3.dp.toPx()), Size(barW, napH), r)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -368,7 +380,7 @@ fun UseHeatmap(
                 data.minutes.forEachIndexed { r, row ->
                     for (c in 0 until 24) {
                         val m = row[c]
-                        val col = if (m == 0) colors.track else colors.screen.copy(alpha = 0.18f + 0.82f * (m.toFloat() / max))
+                        val col = if (m == 0) colors.screenHue.start.copy(alpha = colors.trackAlpha * 0.5f) else androidx.compose.ui.graphics.lerp(colors.screenHue.start.copy(alpha = 0.35f), colors.screenHue.end, (m.toFloat() / max))
                         drawRoundRect(col, Offset(c * cw + g / 2, r * ch + g / 2), Size(cw - g, ch - g), CornerRadius(3.dp.toPx()))
                     }
                 }
@@ -417,8 +429,11 @@ fun ScoreLine(
             Text(Format.percent(fraction), style = NumberStyles.small, color = MaterialTheme.colorScheme.onSurface)
         }
         Spacer(Modifier.height(4.dp))
-        Box(Modifier.fillMaxWidth().height(if (emphasized) 10.dp else 6.dp).clip(RoundedCornerShape(5.dp)).background(LocalDataColors.current.track)) {
-            Box(Modifier.fillMaxWidth(fraction.coerceIn(0.01f, 1f)).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(color))
+        Box(Modifier.fillMaxWidth().height(if (emphasized) 12.dp else 8.dp).clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = LocalDataColors.current.trackAlpha * 0.8f))) {
+            Box(
+                Modifier.fillMaxWidth(fraction.coerceIn(0.01f, 1f)).fillMaxHeight().clip(RoundedCornerShape(6.dp))
+                    .background(Brush.horizontalGradient(listOf(color, androidx.compose.ui.graphics.lerp(color, Color.White, 0.25f)))),
+            )
         }
     }
 }
@@ -441,9 +456,16 @@ fun Sparkline(
             val py = size.height - size.height * (v / max) * 0.9f - 2f
             if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
         }
-        drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        val area = Path().apply {
+            addPath(path)
+            lineTo((values.size - 1) * step, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+        drawPath(area, Brush.verticalGradient(listOf(color.copy(alpha = 0.32f), color.copy(alpha = 0f))))
+        drawPath(path, color, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
         val lastX = (values.size - 1) * step
         val lastY = size.height - size.height * (values.last() / max) * 0.9f - 2f
-        drawCircle(color, radius = 3.dp.toPx(), center = Offset(lastX, lastY))
+        drawCircle(color, radius = 4.dp.toPx(), center = Offset(lastX, lastY))
     }
 }

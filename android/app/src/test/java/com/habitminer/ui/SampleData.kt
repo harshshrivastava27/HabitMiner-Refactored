@@ -282,6 +282,7 @@ object SampleData {
                 sleepDays = sleepDays,
                 sleepWeek = SleepDays.summarize(sleepDays, zone),
                 confirmedNaps = confirmedNaps,
+                usualPickups = PickupAnalyzer.usualPerDay(unlocks, today, zone),
             )
 
         val typical =
