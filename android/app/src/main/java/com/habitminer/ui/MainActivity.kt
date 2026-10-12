@@ -96,6 +96,9 @@ private fun tabHue(tab: Tab): com.habitminer.ui.theme.Hue {
 }
 
 private const val ROUTE_SETTINGS = "settings"
+
+/** What the file picker offers for an import: ZIPs, however the phone labels them. */
+internal val IMPORT_TYPES = arrayOf("application/zip", "application/x-zip-compressed", "application/x-zip", "application/octet-stream")
 private const val ROUTE_STORY = "story"
 private const val ROUTE_APP = "app/{${AppDetailViewModel.ARG_PACKAGE}}"
 
@@ -162,8 +165,11 @@ class MainActivity : ComponentActivity() {
                     onRequestUsage = { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) },
                     onRuntimePermissionsGranted = { viewModel.checkPermissions() },
                     onRequestNotification = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
-                    onImport = { importLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                    onImport = { importLauncher.launch(IMPORT_TYPES) }.takeIf { state.showImportCard || state.importStatus != null },
                     onSkipNotification = { viewModel.skipNotificationAccess() },
+                    importStatus = state.importStatus,
+                    oldAppInstalled = state.oldAppInstalled,
+                    onDismissImport = viewModel::dismissImport,
                 )
             }
             return
@@ -178,7 +184,8 @@ class MainActivity : ComponentActivity() {
                 com.habitminer.proactive.Notifier.OPEN_SLEEP -> nav.goTab(Tab.SLEEP.route)
                 com.habitminer.proactive.Notifier.OPEN_GOALS -> nav.goTab(Tab.GOALS.route)
                 com.habitminer.proactive.Notifier.OPEN_STORY -> nav.navigate(ROUTE_STORY) { launchSingleTop = true }
-                OPEN_IMPORT -> nav.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
+                // The import's progress and result show on Today.
+                OPEN_IMPORT -> nav.goTab(Tab.TODAY.route)
                 else -> if (open?.startsWith("app:") == true) nav.openApp(open!!.removePrefix("app:"))
             }
             if (open != null) pendingOpen.value = null
@@ -242,6 +249,8 @@ class MainActivity : ComponentActivity() {
                             override fun openChanges() = nav.goTab("${Tab.TRENDS.route}?tab=${TrendsTab.CHANGES.name}")
 
                             override fun openApp(packageName: String) = nav.openApp(packageName)
+
+                            override fun pickImportFile() = importLauncher.launch(IMPORT_TYPES)
                         },
                         intention = goals.intentionFor(java.time.LocalDate.now()),
                         dailyTargetMinutes = goals.dailyTargetMinutes,

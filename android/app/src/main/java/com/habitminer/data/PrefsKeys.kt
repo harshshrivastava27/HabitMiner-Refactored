@@ -98,4 +98,7 @@ object PrefsKeys {
     const val UPDATE_CACHED = "update_cached"
     const val UPDATE_SKIPPED = "update_skipped"
     const val UPDATE_NOTIFIED = "update_notified"
+    // Bringing history across from the original HabitMiner.
+    const val IMPORT_DONE_AT = "import_done_at"
+    const val IMPORT_CARD_DISMISSED = "import_card_dismissed"
 }

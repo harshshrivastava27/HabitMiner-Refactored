@@ -77,4 +77,6 @@ interface HabitActions {
     fun setUpdateChecks(enabled: Boolean) = Unit
 
     fun checkForUpdates() = Unit
+
+    fun dismissImport() = Unit
 }

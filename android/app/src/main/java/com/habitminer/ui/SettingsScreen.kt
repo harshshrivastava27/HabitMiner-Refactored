@@ -276,11 +276,11 @@ fun SettingsScreen(
                 }
                 row {
                     ListRow(
-                        "Import an export",
+                        "Import from HabitMiner",
                         icon = Icons.Rounded.Download,
                         iconColor = com.habitminer.ui.theme.LocalDataColors.current.freeHue.start,
-                        supporting = "From this app or the original HabitMiner",
-                        onClick = { importLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                        supporting = "A .zip from Export data, in the original HabitMiner or this app",
+                        onClick = { importLauncher.launch(IMPORT_TYPES) },
                     )
                 }
                 row {

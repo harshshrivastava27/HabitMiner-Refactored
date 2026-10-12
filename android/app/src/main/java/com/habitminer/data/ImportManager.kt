@@ -32,9 +32,13 @@ class ImportManager
             val labels: Int,
             val places: Int,
             val filesRead: Int,
+            /** The export was made with "Hide app names", so its app sessions couldn't be restored. */
+            val hiddenNames: Boolean = false,
         ) {
             val isEmpty: Boolean get() = filesRead == 0
         }
+
+        private var hiddenNames = false
 
         suspend fun importZip(uri: Uri): Result =
             withContext(Dispatchers.IO) {
@@ -43,6 +47,7 @@ class ImportManager
                 var labels = 0
                 var places = 0
                 var files = 0
+                hiddenNames = false
                 val input = context.contentResolver.openInputStream(uri) ?: error("Could not open the file")
                 ZipInputStream(input.buffered()).use { zip ->
                     while (true) {
@@ -60,10 +65,17 @@ class ImportManager
                         }
                     }
                 }
-                Result(usage, snapshots, labels, places, files)
+                Result(usage, snapshots, labels, places, files, hiddenNames)
             }
 
         private suspend fun importUsage(rows: List<Map<String, String>>): Int {
+            // A privacy-safe export replaces packages with codes like app_3f9a1c02de; restoring
+            // those would fill the history with apps that don't exist.
+            val coded = Regex("^app_[0-9a-f]{10}$")
+            if (rows.isNotEmpty() && rows.all { coded.matches(it["packageName"].orEmpty()) }) {
+                hiddenNames = true
+                return 0
+            }
             val parsed =
                 rows.mapNotNull { r ->
                     runCatching {

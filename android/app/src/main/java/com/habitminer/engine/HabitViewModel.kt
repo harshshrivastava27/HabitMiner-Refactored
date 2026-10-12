@@ -70,6 +70,14 @@ data class FeatureSettings(
     val calendar: Boolean = false,
 )
 
+/** Progress of bringing an export in. */
+@Immutable
+data class ImportStatus(
+    val running: Boolean,
+    val message: String,
+    val ok: Boolean = true,
+)
+
 @Immutable
 data class HabitUiState(
     val isLoading: Boolean = true,
@@ -136,6 +144,12 @@ data class HabitUiState(
     val notificationAskDismissed: Boolean = false,
     /** Notification access was skipped during setup (it can be turned on later from Status). */
     val notificationAccessSkipped: Boolean = false,
+    /** Show the "bring your HabitMiner history" card on Today. */
+    val showImportCard: Boolean = false,
+    /** The original HabitMiner is installed on this phone. */
+    val oldAppInstalled: Boolean = false,
+    /** An import running or just finished, shown wherever you are. */
+    val importStatus: ImportStatus? = null,
     /** Pause, break and what's recorded. */
     val recording: com.habitminer.collection.RecordingState = com.habitminer.collection.RecordingState(),
     /** After a break: how it went, until dismissed. */
@@ -233,10 +247,15 @@ class HabitViewModel
             }
             viewModelScope.launch(Dispatchers.IO) { loadWelcomeBack() }
             val prefs = application.getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+            val oldApp = runCatching { application.packageManager.getLaunchIntentForPackage(ORIGINAL_APP) != null }.getOrDefault(false)
             _uiState.update {
                 it.copy(
                     notificationAskDismissed = prefs.getBoolean(PrefsKeys.NOTIFICATION_ASK_DISMISSED, false),
                     notificationAccessSkipped = prefs.getBoolean(PrefsKeys.NOTIFICATION_ACCESS_SKIPPED, false),
+                    oldAppInstalled = oldApp,
+                    showImportCard =
+                        !prefs.getBoolean(PrefsKeys.IMPORT_CARD_DISMISSED, false) && prefs.getLong(PrefsKeys.IMPORT_DONE_AT, 0L) == 0L &&
+                            (oldApp || prefs.getInt(PrefsKeys.DAYS_OF_DATA, 0) < 3),
                 )
             }
         }
@@ -420,24 +439,46 @@ class HabitViewModel
          */
         fun importData(uri: android.net.Uri) {
             viewModelScope.launch(Dispatchers.IO) {
-                _uiState.update { it.copy(exportMessage = "Importing your data…") }
-                val message =
+                val reading = "Importing your data…"
+                _uiState.update { it.copy(exportMessage = reading, importStatus = ImportStatus(running = true, message = reading)) }
+                val status =
                     try {
                         val r = importManager.importZip(uri)
-                        if (r.isEmpty) {
-                            "That file doesn't look like a HabitMiner export. Pick the .zip made by Export Data."
-                        } else {
-                            "Imported ${r.usage} app sessions, ${r.snapshots} surroundings readings, " +
-                                "${r.labels} labels and ${r.places} places. Rebuilding your routines…"
+                        when {
+                            r.hiddenNames ->
+                                ImportStatus(
+                                    false,
+                                    "This export was made with \"Hide app names\" on, so its app history can't be brought back. " +
+                                        "Export again with that switch off.",
+                                    ok = false,
+                                )
+                            r.isEmpty -> ImportStatus(false, "That file doesn't look like a HabitMiner export. Pick the .zip made by Export data.", ok = false)
+                            else ->
+                                ImportStatus(
+                                    false,
+                                    "Imported ${r.usage} app sessions, ${r.snapshots} surroundings readings, " +
+                                        "${r.labels} labels and ${r.places} places. Your routines are being rebuilt from them.",
+                                )
                         }
                     } catch (e: Exception) {
                         android.util.Log.e("HabitMiner", "Import failed", e)
-                        "Import failed: ${e.message ?: "unreadable file"}"
+                        ImportStatus(false, "Import failed: ${e.message ?: "the file couldn't be read"}", ok = false)
                     }
-                _uiState.update { it.copy(exportMessage = message) }
+                if (status.ok) {
+                    getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit()
+                        .putLong(PrefsKeys.IMPORT_DONE_AT, System.currentTimeMillis()).apply()
+                }
+                _uiState.update { it.copy(exportMessage = status.message, importStatus = status) }
                 loadHistoricalData()
                 insightsRefresh.tryEmit(Unit)
             }
+        }
+
+        /** Hides the import card (and a finished import's result). */
+        override fun dismissImport() {
+            getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(PrefsKeys.IMPORT_CARD_DISMISSED, true).apply()
+            _uiState.update { it.copy(showImportCard = false, importStatus = it.importStatus?.takeIf { s -> s.running }) }
         }
 
         override fun selectHistoryDate(timeInMillis: Long) {
@@ -1188,3 +1229,6 @@ class HabitViewModel
             }
         }
     }
+
+/** The original HabitMiner app, which exports the ZIPs this app can import. */
+const val ORIGINAL_APP = "com.habitminer"

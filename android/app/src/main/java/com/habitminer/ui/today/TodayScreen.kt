@@ -104,6 +104,9 @@ interface TodayNavigation {
     fun openChanges()
 
     fun openApp(packageName: String)
+
+    /** Opens the system file picker for an export ZIP. */
+    fun pickImportFile() {}
 }
 
 @Composable
@@ -166,6 +169,12 @@ fun TodayScreen(
                 UpdatePanel(update, state.installState, actions::downloadUpdate, actions::installUpdate, actions::skipUpdate)
             }
         }
+        if (state.importStatus != null || state.showImportCard) {
+            item(key = "import") {
+                Spacer(Modifier.height(22.dp))
+                ImportPanel(state.importStatus, state.oldAppInstalled, nav::pickImportFile, actions::dismissImport)
+            }
+        }
         state.welcomeBack?.let { summary ->
             item(key = "welcome-back") {
                 Spacer(Modifier.height(22.dp))
@@ -186,7 +195,8 @@ fun TodayScreen(
         }
         val askNotifications = !state.canPostNotifications && !state.notificationAskDismissed && state.daysOfData >= 2
         // One raised card at a time: a question you're answering comes first.
-        val busySlot = state.pendingCheckInPromptedAt != null || state.askMood || askNotifications || state.welcomeBack != null
+        val busySlot =
+            state.pendingCheckInPromptedAt != null || state.askMood || askNotifications || state.welcomeBack != null || state.importStatus != null
         if (askNotifications && state.pendingCheckInPromptedAt == null && !state.askMood) {
             item(key = "notify-ask") {
                 Spacer(Modifier.height(22.dp))

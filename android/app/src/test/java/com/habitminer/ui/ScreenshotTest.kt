@@ -270,6 +270,29 @@ class ScreenshotTest {
             )
         }
 
+    @Test
+    fun todayImport() =
+        shoot("20_today_import", dark = false) {
+            TodayScreen(data.state.copy(showImportCard = true, oldAppInstalled = true), NoActions, NoNav, now = data.now)
+        }
+
+    @Test
+    fun todayImported() =
+        shoot("21_today_imported", dark = true) {
+            TodayScreen(
+                data.state.copy(
+                    importStatus =
+                        com.habitminer.engine.ImportStatus(
+                            running = false,
+                            message = "Imported 4,355 app sessions, 431 surroundings readings, 9 labels and 5 places. Your routines are being rebuilt from them.",
+                        ),
+                ),
+                NoActions,
+                NoNav,
+                now = data.now,
+            )
+        }
+
     /** Robolectric devices have no sensors; register the five the app uses. */
     private fun registerSensors() {
         val contexts =

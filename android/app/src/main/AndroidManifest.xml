@@ -64,12 +64,16 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/zip" />
                 <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-zip" />
+                <!-- Some file managers and chat apps share any ZIP as a generic file. -->
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter android:label="@string/import_label">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
                 <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
         </activity>
 

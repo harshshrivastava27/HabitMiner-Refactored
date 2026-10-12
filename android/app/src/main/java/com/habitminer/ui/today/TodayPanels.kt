@@ -3,6 +3,8 @@
 
 package com.habitminer.ui.today
 
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.rounded.History
 import com.habitminer.ui.theme.LocalDataColors
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lightbulb
@@ -290,6 +292,80 @@ fun UpdatePanel(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     com.habitminer.ui.design.HueButton(if (install is com.habitminer.update.InstallState.Failed) "Try again" else "Download", hue, onDownload)
                     androidx.compose.material3.TextButton(onClick = onSkip) { Text("Skip this version", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Bringing history across from the original HabitMiner: how to do it while nothing has been
+ * imported, progress while it runs, and the result afterwards.
+ */
+@Composable
+fun ImportPanel(
+    status: com.habitminer.engine.ImportStatus?,
+    oldAppInstalled: Boolean,
+    onPickFile: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val hue = LocalDataColors.current.freeHue
+    HeroContainer(modifier = modifier, accent = hue.start) {
+        com.habitminer.ui.design.Kicker("Your HabitMiner history", hue, Icons.Rounded.History)
+        Spacer(Modifier.height(6.dp))
+        when {
+            status == null -> {
+                Text("Bring your data across", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (oldAppInstalled) {
+                        "Open HabitMiner, go to Settings and tap Export data, then pick HM Extended in the share list. " +
+                            "App use, readings, labels and places all come across, and your routines are rebuilt from them."
+                    } else {
+                        "In the original HabitMiner, go to Settings and tap Export data, then share it to HM Extended. " +
+                            "Or pick an export .zip you saved."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (oldAppInstalled) {
+                        com.habitminer.ui.design.HueButton("Open HabitMiner", hue, {
+                            context.packageManager.getLaunchIntentForPackage(com.habitminer.engine.ORIGINAL_APP)?.let { runCatching { context.startActivity(it) } }
+                        })
+                        com.habitminer.ui.design.HueTonalButton("Choose file", hue, onPickFile)
+                    } else {
+                        com.habitminer.ui.design.HueButton("Choose file", hue, onPickFile)
+                    }
+                    TextButton(onClick = onDismiss) { Text("Not now", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+            status.running -> {
+                Text("Importing…", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(10.dp))
+                androidx.compose.material3.LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = hue.start,
+                    trackColor = hue.start.copy(alpha = 0.2f),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("This can take a minute for a long history. You can leave this screen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            else -> {
+                Text(
+                    if (status.ok) "History imported" else "Couldn't import that file",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(status.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!status.ok) com.habitminer.ui.design.HueButton("Choose another file", hue, onPickFile)
+                    com.habitminer.ui.design.HueTonalButton("Done", hue, onDismiss)
                 }
             }
         }

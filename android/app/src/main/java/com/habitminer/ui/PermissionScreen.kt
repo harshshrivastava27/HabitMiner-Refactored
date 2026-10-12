@@ -57,6 +57,9 @@ fun PermissionScreen(
     onRequestNotification: () -> Unit,
     onImport: (() -> Unit)? = null,
     onSkipNotification: (() -> Unit)? = null,
+    importStatus: com.habitminer.engine.ImportStatus? = null,
+    oldAppInstalled: Boolean = false,
+    onDismissImport: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val runtime = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) arrayOf(Manifest.permission.ACTIVITY_RECOGNITION) else emptyArray() }
@@ -151,14 +154,8 @@ fun PermissionScreen(
             }) { Text("Open app settings instead") }
         }
         if (onImport != null) {
-            Spacer(Modifier.height(20.dp))
-            Text("Used the original HabitMiner?", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-            Text(
-                "Export your data there and import it here to keep your history. You can also share the export straight to this app.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = onImport) { Text("Import an export") }
+            Spacer(Modifier.height(24.dp))
+            com.habitminer.ui.today.ImportPanel(importStatus, oldAppInstalled, onImport, onDismissImport)
         }
     }
 }
