@@ -4,6 +4,7 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
     id 'com.google.devtools.ksp'     // Kotlin Symbol Processing for Room
     id 'com.google.dagger.hilt.android'
+    id 'androidx.room'
     id 'com.diffplug.spotless'
 }
 
@@ -95,9 +96,11 @@ kotlin {
     }
 }
 
-// Export Room's schema so database migrations can be checked against it (see CI).
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
+// Export Room's schema so database migrations can be checked against it (see CI). The Room
+// plugin keeps each build variant's copy apart, so debug and release builds running at the same
+// time can't read each other's half-written schema file.
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 spotless {
