@@ -64,7 +64,7 @@ fun dayLabel(
         else -> DeviationFinder.shortDate(date)
     }
 
-private val DeviationKind.isMore: Boolean
+internal val DeviationKind.isMore: Boolean
     get() =
         this in
             setOf(

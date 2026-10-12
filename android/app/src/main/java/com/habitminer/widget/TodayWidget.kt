@@ -6,6 +6,13 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
+import androidx.compose.ui.graphics.Color
+import androidx.glance.color.ColorProvider
+import androidx.glance.layout.width
+import androidx.glance.layout.size
+import androidx.glance.layout.Alignment
+import androidx.glance.ImageProvider
+import androidx.glance.Image
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.LocalContext
@@ -37,8 +44,9 @@ import com.habitminer.ui.theme.VividDark
 import com.habitminer.ui.theme.VividLight
 
 /**
- * Today on the home screen: phone time against your usual by now, pickups, and (when wide
- * enough) the insight of the day. Updated after readings, at most every few minutes.
+ * Today on the home screen: phone time against your usual by now, pickups and phone-free time,
+ * with the same three rings as the app when there's room. Updated after readings, at most every
+ * few minutes.
  */
 class TodayWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(setOf(SMALL, WIDE))
@@ -57,33 +65,44 @@ class TodayWidget : GlanceAppWidget() {
     private fun Content(data: WidgetData?) {
         val wide = LocalSize.current.width >= WIDE.width
         val open = actionStartActivity<MainActivity>(actionParametersOf(OPEN to "today"))
-        Column(
+        val pink = ColorProvider(day = Color(0xFFD5104A), night = Color(0xFFFF4D7D))
+        val lime = ColorProvider(day = Color(0xFF3F8F00), night = Color(0xFFB8F53A))
+        val cyan = ColorProvider(day = Color(0xFF0088B0), night = Color(0xFF3FDCFB))
+        Row(
             modifier =
                 GlanceModifier.fillMaxSize().cornerRadius(24.dp).background(GlanceTheme.colors.widgetBackground)
-                    .padding(horizontal = 16.dp, vertical = 14.dp).clickable(open),
+                    .padding(horizontal = 14.dp, vertical = 12.dp).clickable(open),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Today", style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 13.sp, fontWeight = FontWeight.Medium))
             if (data == null) {
-                Spacer(GlanceModifier.height(6.dp))
-                Text("Open HabitMiner to start", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 13.sp))
-                return@Column
-            }
-            Text(Format.duration(data.screenMs), style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 30.sp, fontWeight = FontWeight.Bold))
-            Text(comparison(data), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 2)
-            Spacer(GlanceModifier.height(6.dp))
-            Row(modifier = GlanceModifier.fillMaxWidth()) {
-                Text("${data.unlocks} pickups", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp))
-                data.phoneFreeMs?.takeIf { wide && it >= 30 * 60_000L }?.let {
-                    Text("  ·  ${Format.duration(it)} phone-free", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp))
+                Column {
+                    Text("Today", style = TextStyle(color = pink, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+                    Spacer(GlanceModifier.height(6.dp))
+                    Text("Open HabitMiner to start", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 13.sp))
                 }
+                return@Row
             }
             if (wide) {
-                Spacer(GlanceModifier.height(10.dp))
-                Text(
-                    data.insightTitle ?: "Nothing stands out today",
-                    style = TextStyle(color = if (data.insightTitle != null) GlanceTheme.colors.onSurface else GlanceTheme.colors.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Medium),
-                    maxLines = 2,
-                )
+                val rings =
+                    RingBitmap.render(
+                        220,
+                        listOf(
+                            (data.screenGoalMs?.let { data.screenMs.toFloat() / it } ?: 0f) to RingBitmap.SCREEN,
+                            (data.usualPickups?.let { data.unlocks.toFloat() / it } ?: 0f) to RingBitmap.PICKUPS,
+                            ((data.phoneFreeMs ?: 0L) / (2 * 3_600_000f)) to RingBitmap.FREE,
+                        ),
+                    )
+                Image(ImageProvider(rings), contentDescription = "Today's rings", modifier = GlanceModifier.size(86.dp))
+                Spacer(GlanceModifier.width(14.dp))
+            }
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                Text(Format.duration(data.screenMs), style = TextStyle(color = pink, fontSize = 26.sp, fontWeight = FontWeight.Bold))
+                Text(comparison(data), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 2)
+                Spacer(GlanceModifier.height(4.dp))
+                Text("${data.unlocks} pickups", style = TextStyle(color = lime, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+                data.phoneFreeMs?.takeIf { it >= 10 * 60_000L }?.let {
+                    Text("${Format.duration(it)} phone-free", style = TextStyle(color = cyan, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+                }
             }
         }
     }

@@ -24,6 +24,10 @@ data class WidgetData(
     val phoneFreeMs: Long?,
     val insightTitle: String?,
     val updatedAt: Long,
+    /** What closes the screen-time ring: your target, or a usual full day. */
+    val screenGoalMs: Long? = null,
+    /** Pickups on a usual day, for the pickups ring. */
+    val usualPickups: Int? = null,
 )
 
 object WidgetStore {
@@ -40,6 +44,8 @@ object WidgetStore {
             .putLong("free", d.phoneFreeMs ?: -1L)
             .putString("insight", d.insightTitle)
             .putLong("at", d.updatedAt)
+            .putLong("goal", d.screenGoalMs ?: -1L)
+            .putInt("usualPickups", d.usualPickups ?: -1)
             .apply()
     }
 
@@ -56,6 +62,8 @@ object WidgetStore {
             phoneFreeMs = p.getLong("free", -1L).takeIf { it >= 0 },
             insightTitle = p.getString("insight", null),
             updatedAt = at,
+            screenGoalMs = p.getLong("goal", -1L).takeIf { it > 0 },
+            usualPickups = p.getInt("usualPickups", -1).takeIf { it > 0 },
         )
     }
 }
@@ -69,6 +77,7 @@ class WidgetUpdater
         private val contextRepository: ContextRepository,
         private val appIdentityResolver: AppIdentityResolver,
         private val analysisRepository: AnalysisRepository,
+        private val goalsStore: com.habitminer.goals.GoalsStore,
     ) {
         private val mutex = Mutex()
 
@@ -105,6 +114,10 @@ class WidgetUpdater
                         phoneFreeMs = free,
                         insightTitle = bundle?.insight?.title,
                         updatedAt = now,
+                        screenGoalMs =
+                            goalsStore.goals.value.dailyTargetMinutes?.let { it * 60_000L }
+                                ?: bundle?.typicalDay?.median?.takeIf { it.size == 25 }?.let { it[24] * 60_000L }?.takeIf { it > 0 },
+                        usualPickups = bundle?.usualPickups,
                     ),
                 )
                 runCatching { TodayWidget().updateAll(context) }

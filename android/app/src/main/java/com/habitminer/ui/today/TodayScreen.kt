@@ -74,6 +74,7 @@ import com.habitminer.engine.TypicalUsageCalculator
 import com.habitminer.ui.Labels
 import com.habitminer.ui.NapQuestionCard
 import com.habitminer.ui.RoutineShiftCard
+import com.habitminer.ui.isMore
 import com.habitminer.ui.design.AppIcon
 import com.habitminer.ui.design.BarItem
 import com.habitminer.ui.design.BarList

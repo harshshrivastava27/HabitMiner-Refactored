@@ -217,6 +217,11 @@ class RowGroupScope {
     }
 }
 
+private fun iconTileSlot(
+    icon: ImageVector,
+    color: Color,
+): @Composable () -> Unit = { IconTile(icon, color) }
+
 /** One row inside a [RowGroup]. */
 @Composable
 fun ListRow(
@@ -235,12 +240,7 @@ fun ListRow(
     trailingColor: Color? = null,
 ) {
     val tileColor = iconColor ?: MaterialTheme.colorScheme.primary
-    val lead: (@Composable () -> Unit)? =
-        when {
-            leading != null -> leading
-            icon != null -> @Composable { IconTile(icon, tileColor) }
-            else -> null
-        }
+    val lead: (@Composable () -> Unit)? = leading ?: icon?.let { iconTileSlot(it, tileColor) }
     Row(
         modifier =
             modifier
