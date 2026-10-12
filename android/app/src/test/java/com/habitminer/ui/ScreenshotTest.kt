@@ -223,6 +223,53 @@ class ScreenshotTest {
             com.habitminer.ui.story.StoryContent(com.habitminer.ui.story.StoryState(loading = false, story = story), onBack = {})
         }
 
+    @Test
+    fun weeklyStoryDark() =
+        shoot("17_weekly_story_dark", dark = true) {
+            val story =
+                com.habitminer.analytics.WeeklyStoryBuilder.build(
+                    sessions = data.sessions,
+                    unlocks = data.unlocks,
+                    nights = data.state.insights?.sleepNights.orEmpty(),
+                    naps = data.state.insights?.confirmedNaps.orEmpty(),
+                    patterns = data.state.insights?.patternGroups.orEmpty(),
+                    dailyTargetMinutes = 240,
+                    useLess = data.state.appSummaries.take(1).map { it.packageName }.toSet(),
+                    today = java.time.LocalDate.of(2026, 10, 3),
+                    now = data.now,
+                    zone = SampleData.zone,
+                )
+            com.habitminer.ui.story.StoryContent(com.habitminer.ui.story.StoryState(loading = false, story = story), onBack = {})
+        }
+
+    @Test
+    fun onboarding() =
+        shoot("18_onboarding", dark = true) {
+            com.habitminer.ui.PermissionScreen(
+                hasUsage = true,
+                hasRuntime = false,
+                hasNotification = false,
+                onRequestUsage = {},
+                onRuntimePermissionsGranted = {},
+                onRequestNotification = {},
+                onImport = {},
+            )
+        }
+
+    @Test
+    fun goalsDark() =
+        shoot("19_goals_dark", dark = true) {
+            val apps = data.state.appSummaries
+            com.habitminer.ui.goals.GoalsScreen(
+                goals = com.habitminer.goals.Goals(dailyTargetMinutes = 300, useLess = apps.take(2).map { it.packageName }, useMore = apps.drop(5).take(1).map { it.packageName }, reminderMinutes = 30),
+                apps = apps,
+                dailyTotals = data.state.dailyTotals,
+                todayMs = data.state.todayScreenTimeMs,
+                onChange = {},
+                onOpenApp = {},
+            )
+        }
+
     /** Robolectric devices have no sensors; register the five the app uses. */
     private fun registerSensors() {
         val contexts =

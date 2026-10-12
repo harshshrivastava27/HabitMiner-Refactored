@@ -163,8 +163,7 @@ fun HeroContainer(
     accent: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val dark = com.habitminer.ui.theme.LocalIsDark.current
-    val background = accent?.let { it.copy(alpha = if (dark) 0.16f else 0.08f).compositeOver(color) } ?: color
+    val background = accent?.let { accentFill(it, color) } ?: color
     Column(
         modifier =
             modifier

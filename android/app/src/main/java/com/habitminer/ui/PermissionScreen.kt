@@ -72,9 +72,18 @@ fun PermissionScreen(
     Column(
         modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp),
     ) {
-        Box(Modifier.size(64.dp).clip(CircleShape).background(Color(0xFF123B33)), contentAlignment = Alignment.Center) {
-            Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null, modifier = Modifier.size(96.dp))
-        }
+        val colors = LocalDataColors.current
+        // What Today will show once it has a day to work with.
+        com.habitminer.ui.design.ActivityRings(
+            listOf(
+                com.habitminer.ui.design.RingSpec(0.72f, colors.screenHue),
+                com.habitminer.ui.design.RingSpec(0.55f, colors.pickupsHue),
+                com.habitminer.ui.design.RingSpec(0.4f, colors.freeHue),
+            ),
+            size = 112.dp,
+            stroke = 14.dp,
+            description = "Screen time, pickups and phone-free rings",
+        )
         Spacer(Modifier.height(24.dp))
         Text("Get to know your phone habits", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onBackground)
         Spacer(Modifier.height(10.dp))
@@ -87,6 +96,7 @@ fun PermissionScreen(
         Step(
             1,
             "Usage access",
+            hue = colors.screenHue,
             "See which apps you use and when. Android lists it under Special app access.",
             done = hasUsage,
             active = current == 0,
@@ -96,6 +106,7 @@ fun PermissionScreen(
         Step(
             2,
             "Physical activity",
+            hue = colors.stepsHue,
             "Count steps, to tell walking from sitting and to spot when you get up.",
             done = hasRuntime,
             active = current == 1,
@@ -111,6 +122,7 @@ fun PermissionScreen(
         Step(
             3,
             "Notification access",
+            hue = colors.notificationsHue,
             "Count notifications per app to see what makes you pick up the phone. Never their text.",
             done = hasNotification,
             active = current == 2,
@@ -155,6 +167,7 @@ fun PermissionScreen(
 private fun Step(
     number: Int,
     title: String,
+    hue: com.habitminer.ui.theme.Hue,
     body: String,
     done: Boolean,
     active: Boolean,
@@ -164,19 +177,19 @@ private fun Step(
     val colors = LocalDataColors.current
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.Top) {
         Box(
-            Modifier.size(32.dp).clip(CircleShape).background(
+            Modifier.size(34.dp).clip(CircleShape).background(
                 when {
-                    done -> colors.good.copy(alpha = 0.18f)
-                    active -> MaterialTheme.colorScheme.primaryContainer
-                    else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                    done -> colors.goodHue.start
+                    active -> hue.start
+                    else -> hue.start.copy(alpha = 0.18f)
                 },
             ),
             contentAlignment = Alignment.Center,
         ) {
             if (done) {
-                Icon(Icons.Rounded.Check, contentDescription = "Done", tint = colors.good, modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.Check, contentDescription = "Done", tint = Color.White, modifier = Modifier.size(20.dp))
             } else {
-                Text("$number", style = NumberStyles.small, color = MaterialTheme.colorScheme.onSurface)
+                Text("$number", style = NumberStyles.small, color = if (active) com.habitminer.ui.design.contentOn(hue.start) else hue.text)
             }
         }
         Spacer(Modifier.width(14.dp))
@@ -185,7 +198,7 @@ private fun Step(
             Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (active) {
                 Spacer(Modifier.height(10.dp))
-                Button(onClick = onAction) { Text(action) }
+                com.habitminer.ui.design.HueButton(action, hue, onAction)
             }
         }
     }

@@ -81,8 +81,7 @@ fun Panel(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val base = MaterialTheme.colorScheme.surfaceContainerLow
-    val dark = com.habitminer.ui.theme.LocalIsDark.current
-    val background = accent?.let { it.copy(alpha = if (dark) 0.14f else 0.07f).compositeOver(base) } ?: base
+    val background = accent?.let { com.habitminer.ui.design.accentFill(it, base) } ?: base
     Column(
         modifier =
             modifier

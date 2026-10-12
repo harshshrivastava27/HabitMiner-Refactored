@@ -41,7 +41,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -276,7 +278,43 @@ fun nameColor(name: String): Color {
     return Color(palette[i])
 }
 
-/** A filled button in a measure's colour (white text), for the main answer on a card. */
+/** The colour wheel angle of [c], 0 to 360. */
+internal fun hueDegrees(c: Color): Float {
+    val max = maxOf(c.red, c.green, c.blue)
+    val min = minOf(c.red, c.green, c.blue)
+    val d = max - min
+    if (d <= 0f) return 0f
+    val h =
+        when (max) {
+            c.red -> ((c.green - c.blue) / d) % 6f
+            c.green -> (c.blue - c.red) / d + 2f
+            else -> (c.red - c.green) / d + 4f
+        } * 60f
+    return (h + 360f) % 360f
+}
+
+/** Orange, yellow and lime turn brown when dimmed on black, so they don't tint dark surfaces. */
+internal fun isWarm(c: Color): Boolean = hueDegrees(c) in 18f..110f
+
+/** A card background tinted with [accent]: a pastel wash in light mode, a glow (cool hues only) in dark. */
+@Composable
+fun accentFill(
+    accent: Color,
+    base: Color,
+): Color {
+    val alpha =
+        when {
+            !LocalIsDark.current -> 0.08f
+            isWarm(accent) -> 0f
+            else -> 0.16f
+        }
+    return accent.copy(alpha = alpha).compositeOver(base)
+}
+
+/** Black or white, whichever reads on [background]. */
+fun contentOn(background: Color): Color = if (background.luminance() > 0.35f) Color(0xFF151518) else Color.White
+
+/** A filled button in a measure's colour, for the main answer on a card. */
 @Composable
 fun HueButton(
     text: String,
@@ -285,14 +323,15 @@ fun HueButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    val container = lerp(hue.start, Color.Black, if (LocalIsDark.current) 0f else 0.05f)
     androidx.compose.material3.Button(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
         colors =
             androidx.compose.material3.ButtonDefaults.buttonColors(
-                containerColor = lerp(hue.start, Color.Black, if (LocalIsDark.current) 0f else 0.05f),
-                contentColor = Color.White,
+                containerColor = container,
+                contentColor = contentOn(container),
             ),
     ) { Text(text) }
 }
@@ -312,7 +351,12 @@ fun HueTonalButton(
         modifier = modifier,
         colors =
             androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
-                containerColor = hue.start.copy(alpha = if (LocalIsDark.current) 0.22f else 0.12f),
+                containerColor =
+                    when {
+                        !LocalIsDark.current -> hue.start.copy(alpha = 0.12f)
+                        isWarm(hue.start) -> MaterialTheme.colorScheme.surfaceContainerHighest
+                        else -> hue.start.copy(alpha = 0.22f)
+                    },
                 contentColor = hue.text,
             ),
     ) { Text(text) }

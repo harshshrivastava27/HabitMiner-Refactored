@@ -173,8 +173,8 @@ fun DayRibbonChart(
 
             // Now.
             val nx = w * ribbon.nowMinute / 1440f
-            drawLine(colors.nowHue.text, Offset(nx, 5.dp.toPx()), Offset(nx, chartH), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-            drawCircle(colors.nowHue.text, radius = 5.dp.toPx(), center = Offset(nx, 5.dp.toPx()))
+            drawLine(colors.nowHue.start, Offset(nx, 5.dp.toPx()), Offset(nx, chartH), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            drawCircle(colors.nowHue.start, radius = 5.dp.toPx(), center = Offset(nx, 5.dp.toPx()))
         }
         Spacer(Modifier.height(6.dp))
         AxisRow(hourAxisLabels(listOf(0, 6, 12, 18, 24)))
