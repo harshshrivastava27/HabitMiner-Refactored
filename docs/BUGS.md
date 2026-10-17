@@ -7,7 +7,7 @@ reported and left open until it's fixed; nothing here has been changed in the co
 |----|----------|------|---------|--------|
 | B1 | 16 Oct 2026 | Sleep | A quiet alarm that went unheard was taken as waking up | Open |
 | B2 | 18 Oct 2026 | Screen time | Today's total misses use the heatmap shows; day totals are off | Open |
-| B3 | 18 Oct 2026 | Insights | "Used your phone while on the move 307 times" looks far too high | To confirm |
+| B3 | 18 Oct 2026 | Insights | "Used your phone while on the move 307 times" is far too high | Open |
 
 ---
 
@@ -90,11 +90,11 @@ reported and left open until it's fixed; nothing here has been changed in the co
 
 ---
 
-## B3. "Used your phone while on the move 307 times" (to confirm)
+## B3. "Used your phone while on the move 307 times" is far too high
 
-**Spotted:** Sun 18 Oct 2026, in the Today screenshot for B2 (not reported as a bug yet)
+**Spotted:** Sun 18 Oct 2026, in the Today screenshot for B2; confirmed wrong the same night
 **Area:** The "Worth knowing" insight on Today
-**Status:** To confirm with you
+**Status:** Open, not fixed yet
 
 **What it showed**
 - "Used your phone while on the move 307 times. Mostly Snapchat. Detected with the motion
@@ -106,7 +106,18 @@ reported and left open until it's fixed; nothing here has been changed in the co
   such as moving the phone around in my hand, instead of times I was really walking or
   in a vehicle.
 
-**To check later**
-- What the count is per: readings, sessions or distinct stretches.
-- Whether it should rely on the step counter or Android's activity recognition (walking,
-  in a vehicle) rather than the raw motion sensor.
+**Likely cause** (from reading the code, not yet confirmed)
+- `ContextInsights` counts **app sessions**, not trips: every session whose nearest sensor
+  reading wasn't "still" adds one. 307 is roughly how many app opens (mostly short
+  Snapchat ones) had a "moving" reading nearby.
+- Readings are taken when the phone is unlocked or an app is opened, which is exactly
+  when it's being picked up and handled. So the accelerometer often reads "moving" while
+  I'm sitting down.
+- The nearest reading can also be some distance in time from the session it's applied to.
+
+**Ideas for the fix** (later)
+- Count distinct stretches of moving (for example 5 minutes or more), not sessions.
+- Only call it moving when the step counter shows steps or Android's activity recognition
+  says walking, running, cycling or in a vehicle. Ignore accelerometer movement from
+  handling the phone.
+- Only use a reading taken close to the session.
