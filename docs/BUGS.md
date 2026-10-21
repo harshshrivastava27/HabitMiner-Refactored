@@ -8,6 +8,7 @@ reported and left open until it's fixed; nothing here has been changed in the co
 | B1 | 16 Oct 2026 | Sleep | A quiet alarm that went unheard was taken as waking up | Open |
 | B2 | 18 Oct 2026 | Screen time | Today's total misses use the heatmap shows; day totals are off | Open |
 | B3 | 18 Oct 2026 | Insights | "Used your phone while on the move 307 times" is far too high | Open |
+| B4 | 21 Oct 2026 | Naps | A nap after Reddit wasn't found, no nap notification, and naps can't be added by hand | Open |
 
 ---
 
@@ -121,3 +122,49 @@ reported and left open until it's fixed; nothing here has been changed in the co
   says walking, running, cycling or in a vehicle. Ignore accelerometer movement from
   handling the phone.
 - Only use a reading taken close to the session.
+
+---
+
+## B4. Missed nap, no nap notification, and no way to add naps
+
+**Reported:** Wed 21 Oct 2026
+**Area:** Naps (Sleep screen, Today, notifications)
+**Status:** Open, not fixed yet
+
+**What happened**
+- On Wednesday I slept after using Reddit (heatmap: 10:00–11:00, 15 min, mostly Reddit).
+  The phone was barely touched for a few hours after that: 11:00–12:00 had 4 min (Google),
+  12:00–13:00 nothing, 13:00–14:00 had 2 min (WhatsApp), 14:00–15:00 had 7 min (Instagram).
+  No nap was recorded.
+- I never got a "Were you asleep?" notification. The only way to see or answer nap
+  questions is to keep opening the app.
+- There's no way to add a nap myself, let alone more than one in a day.
+
+**Expected**
+- A nap from roughly 11:00 to early afternoon is found, or at least asked about.
+- A notification asks about it soon after I pick the phone up again.
+- I can add naps by hand, several per day, and edit or remove them, like fixing a night.
+
+**Likely cause** (from reading the code, not yet confirmed)
+- `NapDetector` joins a nap across a pickup only if the pickup is "brief": at most 3 min of
+  use within 10 min (`ActivityCluster.isBrief`). The 4 min of Google at 11:xx is over that,
+  so the nap is cut there. The pieces left over may each be under the 45 min minimum, or the
+  trimming of "dozing off" gaps at the start (under 30 min) may eat the rest.
+- A candidate with low confidence (for example no darkness or charging seen when I picked
+  the phone up) is never shown on Today and never notified.
+- The notification only goes out if every one of these holds: the screen is on when the
+  background check runs, it's within 3 hours of the nap ending, it isn't quiet hours, it's
+  a "receptive" moment, check-in questions are on, and the shared limit of 3 a day isn't
+  used up. Only the most recent unanswered nap is ever asked about.
+- Adding sleep by hand exists only for nights (`FixNightSheet`), not for naps.
+
+**Ideas for the fix** (later)
+- Allow a few minutes of quick use inside a nap (checking a message), as long as there are
+  no steps and the gaps on both sides are long.
+- Still ask about low-confidence candidates, just with softer wording.
+- Ask right after the next unlock following the nap, with nap questions not held back by
+  the daily limit, and show any unanswered naps on Today and on Sleep.
+- Add an "Add a nap" sheet on Sleep (start and end time, any day this week), allowing
+  several per day, editable and removable. Hand-added naps should count like confirmed ones.
+- To check: this week's "Naps 7, 15h 51m in total" looks high, so confirm those naps were
+  ones I actually answered "yes" to.
