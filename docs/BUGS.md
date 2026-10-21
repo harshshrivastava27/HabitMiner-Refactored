@@ -166,5 +166,4 @@ reported and left open until it's fixed; nothing here has been changed in the co
   the daily limit, and show any unanswered naps on Today and on Sleep.
 - Add an "Add a nap" sheet on Sleep (start and end time, any day this week), allowing
   several per day, editable and removable. Hand-added naps should count like confirmed ones.
-- To check: this week's "Naps 7, 15h 51m in total" looks high, so confirm those naps were
-  ones I actually answered "yes" to.
+- Checked: this week's "Naps 7, 15h 51m in total" is correct, so the nap totals are fine.
