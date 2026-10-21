@@ -189,7 +189,8 @@ reported and left open until it's fixed; nothing here has been changed in the co
 
 **Wanted**
 - Each day's nap total visible in the week view again, like the original.
-- Tap a bar (or a day in Regularity) to open that day's details:
+- Tap a day's bar in "This week" to open that day's details. Regularity stays as it is,
+  since it's only about night sleep:
   - the night: fell asleep, woke up, how long, brief wake-ups
   - each nap with its own times, for example "10:00–11:00 and 12:00–13:00, 2 naps, 2h"
   - the day's total
