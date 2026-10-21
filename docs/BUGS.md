@@ -9,6 +9,7 @@ reported and left open until it's fixed; nothing here has been changed in the co
 | B2 | 18 Oct 2026 | Screen time | Today's total misses use the heatmap shows; day totals are off | Open |
 | B3 | 18 Oct 2026 | Insights | "Used your phone while on the move 307 times" is far too high | Open |
 | B4 | 21 Oct 2026 | Naps | A nap after Reddit wasn't found, no nap notification, and naps can't be added by hand | Open |
+| B5 | 21 Oct 2026 | Sleep | Week view lost the per-day night and nap details the original app had; tap a day to see them | Open (request) |
 
 ---
 
@@ -167,3 +168,29 @@ reported and left open until it's fixed; nothing here has been changed in the co
 - Add an "Add a nap" sheet on Sleep (start and end time, any day this week), allowing
   several per day, editable and removable. Hand-added naps should count like confirmed ones.
 - Checked: this week's "Naps 7, 15h 51m in total" is correct, so the nap totals are fine.
+
+---
+
+## B5. Show each day's night and naps, and let me tap a day for details
+
+**Reported:** Wed 21 Oct 2026
+**Area:** Sleep, "This week" (a regression from the original HabitMiner)
+**Status:** Open, a feature request
+
+**What the original app shows** (Insights, then Blueprint, then "Sleep this week")
+- One row per day, with a bar split into night and naps, the total, and a line under it,
+  for example "Wed 21: 03:54 → 08:10, woke 1×, nap 2h 14m, 6h 29m".
+- So the nap durations for every day of the week are visible at a glance.
+
+**What Extended shows**
+- Bars per day with the nap stacked on top and a daily total, but no nap durations and no
+  times. The week only gives "Naps 7, 15h 51m in total". The Regularity chart shows night
+  times only.
+
+**Wanted**
+- Each day's nap total visible in the week view again, like the original.
+- Tap a bar (or a day in Regularity) to open that day's details:
+  - the night: fell asleep, woke up, how long, brief wake-ups
+  - each nap with its own times, for example "10:00–11:00 and 12:00–13:00, 2 naps, 2h"
+  - the day's total
+  - from there, fix the night or edit, add or remove a nap (ties in with B4)
