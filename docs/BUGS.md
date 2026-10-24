@@ -10,6 +10,7 @@ reported and left open until it's fixed; nothing here has been changed in the co
 | B3 | 18 Oct 2026 | Insights | "Used your phone while on the move 307 times" is far too high | Open |
 | B4 | 21 Oct 2026 | Naps | A nap after Reddit wasn't found, no nap notification, and naps can't be added by hand | Open |
 | B5 | 21 Oct 2026 | Sleep | Week view lost the per-day night and nap details the original app had; tap a day to see them | Open (request) |
+| B6 | 24 Oct 2026 | Sleep | Wake time shown in the future (09:20 at 09:06); I actually woke at 08:00 | Open |
 
 ---
 
@@ -195,3 +196,45 @@ reported and left open until it's fixed; nothing here has been changed in the co
   - each nap with its own times, for example "10:00–11:00 and 12:00–13:00, 2 naps, 2h"
   - the day's total
   - from there, fix the night or edit, add or remove a nap (ties in with B4)
+
+---
+
+## B6. Wake time is later than now, and the real wake-up was missed
+
+**Reported:** Sat 24 Oct 2026
+**Area:** Sleep (last night)
+**Status:** Open, not fixed yet
+
+**What happened**
+- At 09:06, Sleep showed **5h 30m, about 03:48 to 09:20**. 09:20 hadn't happened yet.
+- "Why it looks like sleep" said: untouched for 3h 13m, dark room, no steps, alarm set for
+  08:00, "adjusted by what 5 known nights showed". It listed one brief wake at 06:50, and
+  "Clock after waking".
+- I actually woke at **08:00**. The original HabitMiner got it right: 03:37 → 08:00, 4h 22m.
+
+**Expected**
+- About 03:37 (or 03:48 with the adjustment) to 08:00.
+- A wake time can never be later than the current time, or than the first real use of
+  the phone after waking.
+
+**Likely cause** (from reading the code, not yet confirmed)
+- Two problems stacked:
+  1. **The real wake-up was treated as a brief wake.** Stopping the 08:00 alarm and the use
+     after it seem to have been joined into the night as a short wake-up (no steps were
+     seen), so the night ran on to a later pickup, around 09:10. This is the opposite of
+     B1: there an alarm ended the night too early, here getting up didn't end it.
+  2. **The correction shift isn't clamped.** The adjustment learned from fixed nights
+     ("wake up 10m after first picking it up") was added on top of that, pushing the wake
+     time to 09:20, past "now".
+- The night was probably also judged while it was still going on, so the most recent
+  pickup was taken as the end.
+
+**Ideas for the fix** (later)
+- Clamp the wake time (after any adjustment) to no later than now, and to no later than
+  the first sustained use after the night.
+- Treat dismissing an alarm followed by normal use within a few minutes (not just Clock)
+  as getting up, unless the phone is put down again for a long stretch. Look at B1 and B6
+  together so both alarm cases come out right.
+- Don't apply the learned shift to a night that's still in progress, or that has no clear
+  end yet.
+- Test with this night: asleep 03:37, brief wake 06:50, alarm 08:00 then use, checked at 09:06.
