@@ -332,8 +332,9 @@ fun SleepWeekColumns(
                     val nightH = h * (d.nightMs / scale)
                     val napH = h * (d.napMs / scale)
                     if (nightH > 0f) {
+                        // Stops short of the light end of the hue, so naps on top stand apart.
                         drawRoundRect(
-                            Brush.verticalGradient(listOf(colors.sleepHue.end, colors.sleepHue.start), startY = h - nightH, endY = h),
+                            Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(colors.sleepHue.start, colors.sleepHue.end, 0.45f), colors.sleepHue.start), startY = h - nightH, endY = h),
                             Offset(left, h - nightH),
                             Size(barW, nightH),
                             r,

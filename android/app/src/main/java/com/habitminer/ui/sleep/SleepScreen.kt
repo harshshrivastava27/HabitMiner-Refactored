@@ -347,7 +347,7 @@ fun SleepScreen(
                     Spacer(Modifier.height(12.dp))
                     val c = LocalDataColors.current
                     RowGroup {
-                        row { ListRow("Average a day", supporting = "Night plus confirmed naps", trailingText = Format.duration(w.avgTotalMs), icon = Icons.Rounded.Bedtime, iconColor = c.sleepHue.start) }
+                        row { ListRow("Average a day", supporting = "Night plus naps", trailingText = Format.duration(w.avgTotalMs), icon = Icons.Rounded.Bedtime, iconColor = c.sleepHue.start) }
                         row { ListRow("Average night", trailingText = Format.duration(w.avgNightMs), icon = Icons.Rounded.NightsStay, iconColor = c.notificationsHue.start) }
                         row {
                             ListRow(
