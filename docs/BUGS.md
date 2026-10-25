@@ -11,6 +11,7 @@ reported and left open until it's fixed; nothing here has been changed in the co
 | B4 | 21 Oct 2026 | Naps | A nap after Reddit wasn't found, no nap notification, and naps can't be added by hand | Open |
 | B5 | 21 Oct 2026 | Sleep | Week view lost the per-day night and nap details the original app had; tap a day to see them | Open (request) |
 | B6 | 24 Oct 2026 | Sleep | Wake time shown in the future (09:20 at 09:06); I actually woke at 08:00 | Open |
+| B7 | 26 Oct 2026 | Today | Insight card stays after "Useful" and keeps asking; mood and energy rarely appear | Open |
 
 ---
 
@@ -238,3 +239,47 @@ reported and left open until it's fixed; nothing here has been changed in the co
 - Don't apply the learned shift to a night that's still in progress, or that has no clear
   end yet.
 - Test with this night: asleep 03:37, brief wake 06:50, alarm 08:00 then use, checked at 09:06.
+
+---
+
+## B7. Insight card won't go away after feedback, and the mood check is rare
+
+**Reported:** Mon 26 Oct 2026
+**Area:** Today (Insight of the day card, mood and energy card)
+**Status:** Open, not fixed yet
+
+**What happened**
+- I tapped **Useful** on "Yesterday: more Snapchat than usual (2h 59m, usually about
+  42m)", but the card stayed on Today, still asking for Useful or Fewer like this. It keeps
+  asking for feedback day after day, which gets irritating.
+- The mood and energy card shows up very rarely and at random times.
+
+**Expected**
+- After I answer, the card thanks me briefly and then gets out of the way: it collapses or
+  disappears for the rest of the day.
+- Asking for feedback should be occasional, not on every insight. Take a few answers, then
+  stop asking for a few days or weeks and learn from what I said (which topics I find
+  useful), asking again only now and then to check.
+- The mood and energy check should take that slot instead: shown regularly and
+  predictably (for example once a day at a set time, or in the evening), not at random.
+
+**Likely cause** (from reading the code, not yet confirmed)
+- `insightFeedback` only saves the answer and refreshes. The card is built to stay all day
+  and switch to "Noted: more like this" with Undo, rather than going away. In the
+  screenshot it still showed both buttons, so the answer may not be sticking either: after
+  the refresh the same insight, or a re-picked one, comes back with no feedback recorded.
+  Needs checking.
+- There's no limit on how often feedback is asked for. Every insight comes with the two
+  buttons.
+- The mood and energy card is only shown right after answering a check-in inside the app
+  (`askMood` is set in the check-in answer handler), and check-ins themselves are rare and
+  limited. So mood questions are rare and look random.
+
+**Ideas for the fix** (later)
+- After feedback: a short "Thanks" with Undo for a few seconds, then hide the card for the
+  day, and make sure the answer is saved against the insight's key.
+- Ask for feedback on only some insights. Once there are about 5 answers, stop asking for a
+  couple of weeks, keep adjusting topics from those answers, and then check in now and then.
+- Give the mood and energy check its own steady schedule (once a day, at a time I can pick
+  or in the evening), shown on Today in the slot the insight feedback used, and optionally
+  as a quiet notification. Don't tie it to check-ins.
