@@ -1,17 +1,39 @@
 # Reported bugs
 
 Bugs found while using HabitMiner Extended day to day. Each entry is logged when it's
-reported and left open until it's fixed; nothing here has been changed in the code yet.
+reported and kept after it's fixed, with what changed. All seven were fixed together on
+26 Oct 2026 and checked against two full exports (yours and a second phone's): the nights
+you had corrected, the naps you had answered, and the alarm patterns of both phones.
 
 | ID | Reported | Area | Summary | Status |
 |----|----------|------|---------|--------|
-| B1 | 16 Oct 2026 | Sleep | A quiet alarm that went unheard was taken as waking up | Open |
-| B2 | 18 Oct 2026 | Screen time | Today's total misses use the heatmap shows; day totals are off | Open |
-| B3 | 18 Oct 2026 | Insights | "Used your phone while on the move 307 times" is far too high | Open |
-| B4 | 21 Oct 2026 | Naps | A nap after Reddit wasn't found, no nap notification, and naps can't be added by hand | Open |
-| B5 | 21 Oct 2026 | Sleep | Week view lost the per-day night and nap details the original app had; tap a day to see them | Open (request) |
-| B6 | 24 Oct 2026 | Sleep | Wake time shown in the future (09:20 at 09:06); I actually woke at 08:00 | Open |
-| B7 | 26 Oct 2026 | Today | Insight card stays after "Useful" and keeps asking; mood and energy rarely appear | Open |
+| B1 | 16 Oct 2026 | Sleep | A quiet alarm that went unheard was taken as waking up | Fixed |
+| B2 | 18 Oct 2026 | Screen time | Today's total misses use the heatmap shows; day totals are off | Fixed |
+| B3 | 18 Oct 2026 | Insights | "Used your phone while on the move 307 times" is far too high | Fixed |
+| B4 | 21 Oct 2026 | Naps | A nap after Reddit wasn't found, no nap notification, and naps can't be added by hand | Fixed |
+| B5 | 21 Oct 2026 | Sleep | Week view lost the per-day night and nap details the original app had; tap a day to see them | Done |
+| B6 | 24 Oct 2026 | Sleep | Wake time shown in the future (09:20 at 09:06); I actually woke at 08:00 | Fixed |
+| B7 | 26 Oct 2026 | Today | Insight card stays after "Useful" and keeps asking; mood and energy rarely appear | Fixed |
+
+## How the fixes were checked
+
+Each night you had corrected was replayed with the old and the new detection (wake-up error
+against your times, in minutes; negative is too early):
+
+| Night ending | Before | After |
+|--------------|--------|-------|
+| Fri 16 Oct | −79 | −5 |
+| Sun 18 Oct | −9 | −9 |
+| Wed 21 Oct | −114 | 0 |
+| Thu 22 Oct | −1 | −1 |
+| Fri 23 Oct | −163 | −20 |
+| Sat 24 Oct | 0 | 0 |
+
+The learned "wake up later than detected" adjustment drops from 45 minutes to none, since it
+had mostly been learned from the alarm mistakes. Every nap you answered "asleep" is found
+again, including the late-morning one on Mon 19 Oct, which an earlier draft of the fix had
+swallowed into the night. On the second phone, nights still end at the last alarm switched
+off in the morning, as before.
 
 ---
 
@@ -19,7 +41,7 @@ reported and left open until it's fixed; nothing here has been changed in the co
 
 **Reported:** Fri 16 Oct 2026
 **Area:** Sleep (also screen time and the hourly heatmap)
-**Status:** Open, not fixed yet
+**Status:** Fixed (26 Oct 2026)
 
 **What happened**
 - Sleep showed last night as **4h 49m, about 03:20 to 08:10**, with "alarm set for 08:10"
@@ -52,13 +74,24 @@ reported and left open until it's fixed; nothing here has been changed in the co
 - End the night at the first real unlock after the alarm, not at the alarm itself.
 - Add a test with this exact night: asleep 03:20, alarm 08:10 with two snoozes, up at 09:10.
 
+
+**What changed**
+- An alarm or timer screen over the lock screen is no longer stored as app use. It's logged
+  as an alarm ring instead, so it's not screen time and not in the heatmap. Sessions stored
+  before the update (and imported ones) are repaired once.
+- Sleep tells two kinds of alarm apart. Switched off or snoozed within seconds: you were
+  awake for a moment, a brief wake-up. Rang until the clock app gave up (a minute or more):
+  you slept through it, and the night says so ("slept through the alarm 4 times from 08:10").
+- The night ends at the first real use after it, not at the first ring. Your night: 03:20 to
+  09:24, against your 09:30.
+
 ---
 
 ## B2. Screen time total doesn't match the heatmap
 
 **Reported:** Sun 18 Oct 2026 (noticed over the previous few days)
 **Area:** Screen time on Today, the notification, the widget, the Trends curve and day totals
-**Status:** Open, not fixed yet
+**Status:** Fixed (26 Oct 2026)
 
 **What happened**
 - At 01:24 on Sunday, Today showed **23m** screen time ("29m less than a usual weekend
@@ -92,13 +125,21 @@ reported and left open until it's fixed; nothing here has been changed in the co
 - Check against Digital Wellbeing for a day with a session across midnight.
 - Add a test: a session 23:30 to 01:00 adds 30m to one day and 60m to the next.
 
+
+**What changed**
+- Sessions are split at midnight when they're read, so each day gets the time used in it: a
+  film from 23:30 to 01:00 is 30 minutes on one day and an hour on the next. Every total
+  (Today, the notification, the widget, history, exports) now agrees with the heatmap.
+- Repeat visits to the same app are never merged across midnight.
+- Stored sessions that ran past midnight, and imported ones, are split once after the update.
+
 ---
 
 ## B3. "Used your phone while on the move 307 times" is far too high
 
 **Spotted:** Sun 18 Oct 2026, in the Today screenshot for B2; confirmed wrong the same night
 **Area:** The "Worth knowing" insight on Today
-**Status:** Open, not fixed yet
+**Status:** Fixed (26 Oct 2026)
 
 **What it showed**
 - "Used your phone while on the move 307 times. Mostly Snapchat. Detected with the motion
@@ -126,13 +167,21 @@ reported and left open until it's fixed; nothing here has been changed in the co
   handling the phone.
 - Only use a reading taken close to the session.
 
+
+**What changed**
+- "On the go" now needs the step counter to see walking at the time, or Android's activity
+  recognition to say you were in a vehicle or cycling. Moving the phone in your hand doesn't
+  count any more.
+- It counts trips, not sessions: looks at the phone within 10 minutes of each other while
+  moving are one. Your last week: 62 trips instead of 307.
+
 ---
 
 ## B4. Missed nap, no nap notification, and no way to add naps
 
 **Reported:** Wed 21 Oct 2026
 **Area:** Naps (Sleep screen, Today, notifications)
-**Status:** Open, not fixed yet
+**Status:** Fixed (26 Oct 2026)
 
 **What happened**
 - On Wednesday I slept after using Reddit (heatmap: 10:00–11:00, 15 min, mostly Reddit).
@@ -171,13 +220,25 @@ reported and left open until it's fixed; nothing here has been changed in the co
   several per day, editable and removable. Hand-added naps should count like confirmed ones.
 - Checked: this week's "Naps 7, 15h 51m in total" is correct, so the nap totals are fine.
 
+
+**What changed**
+- The nap detector starts again from the next pickup when a stretch isn't a nap, and steps
+  from a walk just before the nap no longer count against it. Your Wednesday nap is found as
+  12:37 to 13:50 (the morning had walking at 11:00 and 12:00, so it isn't one long nap).
+- "Were you asleep?" goes out for likely naps and for any nap of an hour or more, within 4
+  hours, outside the daily limit of three, and isn't held back by Do Not Disturb.
+- Add, change and remove naps yourself, as many a day as you had: "Add a nap" on Sleep, or
+  from a day's details. The question also has "Yes, but at other times".
+- Answers to the same nap (asked twice as it grew) count once, and a nap that overlaps one
+  you've already answered isn't asked about again.
+
 ---
 
 ## B5. Show each day's night and naps, and let me tap a day for details
 
 **Reported:** Wed 21 Oct 2026
 **Area:** Sleep, "This week" (a regression from the original HabitMiner)
-**Status:** Open, a feature request
+**Status:** Done (26 Oct 2026)
 
 **What the original app shows** (Insights, then Blueprint, then "Sleep this week")
 - One row per day, with a bar split into night and naps, the total, and a line under it,
@@ -198,13 +259,20 @@ reported and left open until it's fixed; nothing here has been changed in the co
   - the day's total
   - from there, fix the night or edit, add or remove a nap (ties in with B4)
 
+
+**What changed**
+- "This week" shows all seven days, each with its nap time under the total, and a legend.
+- Tap a day for its details: the night (times, brief wake-ups, how it was worked out), each
+  nap with its own times, the count and the total, with "Fix the times", "Add a nap", and
+  change or remove for each nap. Regularity is unchanged.
+
 ---
 
 ## B6. Wake time is later than now, and the real wake-up was missed
 
 **Reported:** Sat 24 Oct 2026
 **Area:** Sleep (last night)
-**Status:** Open, not fixed yet
+**Status:** Fixed (26 Oct 2026)
 
 **What happened**
 - At 09:06, Sleep showed **5h 30m, about 03:48 to 09:20**. 09:20 hadn't happened yet.
@@ -240,13 +308,23 @@ reported and left open until it's fixed; nothing here has been changed in the co
   end yet.
 - Test with this night: asleep 03:37, brief wake 06:50, alarm 08:00 then use, checked at 09:06.
 
+
+**What changed**
+- The learned adjustment can't move a wake-up past now or past the first real use of the
+  phone after it.
+- Switching off the last alarm of the morning (no other alarm for two hours) ends the night,
+  as long as the sleep before it is a whole night; snoozes before it count as still in bed.
+  When the sleep before it is too short, you clearly slept on and the night carries on.
+- A few quick looks close together (snoozing, the time, a message) are one brief wake-up.
+- That night is now detected as ending at 08:00, as the original app had it.
+
 ---
 
 ## B7. Insight card won't go away after feedback, and the mood check is rare
 
 **Reported:** Mon 26 Oct 2026
 **Area:** Today (Insight of the day card, mood and energy card)
-**Status:** Open, not fixed yet
+**Status:** Fixed (26 Oct 2026)
 
 **What happened**
 - I tapped **Useful** on "Yesterday: more Snapchat than usual (2h 59m, usually about
@@ -283,3 +361,13 @@ reported and left open until it's fixed; nothing here has been changed in the co
 - Give the mood and energy check its own steady schedule (once a day, at a time I can pick
   or in the evening), shown on Today in the slot the insight feedback used, and optionally
   as a quiet notification. Don't tie it to check-ins.
+
+**What changed**
+- After Useful or Fewer like this, the card says thanks with Undo for a few seconds, then goes
+  away until tomorrow, and so does that day's difference card, which usually says the same.
+- Feedback is asked for every other day while HabitMiner is learning, and every two weeks once
+  you've given five answers in a month. Your answers keep steering which topics come up. On
+  other days the card has "Hide until tomorrow" instead.
+- The mood and energy check has its own time each day (20:00 by default, Settings, then
+  "Daily mood check"), waits on Today until you answer or skip it, and can also arrive as a
+  silent notification.
