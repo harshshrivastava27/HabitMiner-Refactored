@@ -418,3 +418,50 @@ data class QuietHours(
             else -> minuteOfDay >= startMinute || minuteOfDay < endMinute
         }
 }
+
+/**
+ * How often to ask whether the insight of the day was useful: every other day while it's
+ * learning what you care about, then only now and then once it has a few answers. Your answers
+ * keep steering which topics come up either way.
+ */
+object FeedbackAsk {
+    /** Answers in the last month that are enough to stop asking often. */
+    const val ENOUGH_ANSWERS = 5
+
+    /** Days between asks while learning. */
+    const val LEARNING_GAP_DAYS = 2L
+
+    /** Days between asks once it has enough answers: a check now and then. */
+    const val SETTLED_GAP_DAYS = 14L
+
+    /**
+     * Whether to ask about today's insight. [answered] are the days you gave feedback,
+     * [lastAsked] the last day it asked (asking holds for the rest of that day).
+     */
+    fun shouldAsk(
+        answered: List<LocalDate>,
+        lastAsked: LocalDate?,
+        today: LocalDate,
+    ): Boolean {
+        if (lastAsked == today) return true
+        if (lastAsked == null) return true
+        val recent = answered.count { !it.isBefore(today.minusDays(30)) && !it.isAfter(today) }
+        val gap = if (recent >= ENOUGH_ANSWERS) SETTLED_GAP_DAYS else LEARNING_GAP_DAYS
+        return java.time.temporal.ChronoUnit.DAYS.between(lastAsked, today) >= gap
+    }
+}
+
+/** The daily mood and energy check: on Today from a set time each day until you answer or skip it. */
+object MoodSchedule {
+    /** 20:00: the day is mostly done but it's not yet bedtime. */
+    const val DEFAULT_MINUTE = 20 * 60
+
+    fun due(
+        enabled: Boolean,
+        minute: Int,
+        answeredToday: Boolean,
+        skippedToday: Boolean,
+        now: Long,
+        zone: ZoneId,
+    ): Boolean = enabled && !answeredToday && !skippedToday && TimeUtil.minuteOfDay(now, zone) >= minute
+}

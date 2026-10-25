@@ -8,6 +8,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -288,54 +289,72 @@ data class BarItem(
     val leading: (@Composable () -> Unit)? = null,
 )
 
-/** Seven days of sleep as columns: night in indigo, naps stacked on top. */
+/**
+ * Seven days of sleep as columns: the night in violet with naps stacked on top, then the day,
+ * its total and its nap time. With [onDay], tapping a day opens its details.
+ */
 @Composable
 fun SleepWeekColumns(
     days: List<DailySleep>,
     modifier: Modifier = Modifier,
     usualMs: Long? = null,
+    onDay: ((DailySleep) -> Unit)? = null,
 ) {
     val colors = LocalDataColors.current
+    val napText = if (com.habitminer.ui.theme.LocalIsDark.current) colors.nap else colors.sleepHue.text
     val scale = maxOf(10 * 3_600_000L, days.maxOfOrNull { it.totalMs } ?: 0L).toFloat()
-    val description = days.joinToString("; ") { "${it.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${Format.duration(it.totalMs)}" }
-    Column(modifier = modifier.padding(horizontal = ScreenPadding)) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(132.dp).semantics { contentDescription = "Sleep per day: $description" }) {
-            val n = days.size.coerceAtLeast(1)
-            val slot = size.width / n
-            val barW = slot * 0.52f
-            val h = size.height
-            usualMs?.let { u ->
-                val yy = h - h * (u / scale)
-                drawLine(colors.usual.copy(alpha = 0.6f), Offset(0f, yy), Offset(size.width, yy), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
-            }
-            days.forEachIndexed { i, d ->
-                val left = i * slot + (slot - barW) / 2
-                val r = CornerRadius(barW / 2)
-                drawRoundRect(colors.sleepHue.start.copy(alpha = colors.trackAlpha * 0.7f), Offset(left, 0f), Size(barW, h), r)
-                val nightH = h * (d.nightMs / scale)
-                val napH = h * (d.napMs / scale)
-                if (nightH > 0f) {
-                    drawRoundRect(
-                        Brush.verticalGradient(listOf(colors.sleepHue.end, colors.sleepHue.start), startY = h - nightH, endY = h),
-                        Offset(left, h - nightH),
-                        Size(barW, nightH),
-                        r,
-                    )
+    Row(modifier = modifier.fillMaxWidth().padding(horizontal = ScreenPadding - 4.dp)) {
+        days.forEach { d ->
+            val dayName = d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+            val spoken =
+                "$dayName: " + (if (d.totalMs > 0) "${Format.duration(d.totalMs)} asleep" else "no sleep recorded") +
+                    (if (d.naps.isNotEmpty()) ", ${d.naps.size} ${if (d.naps.size == 1) "nap" else "naps"}, ${Format.duration(d.napMs)}" else "")
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .then(if (onDay != null) Modifier.clickable(onClickLabel = "Show the day") { onDay(d) } else Modifier)
+                        .semantics(mergeDescendants = true) { contentDescription = spoken }
+                        .padding(horizontal = 2.dp, vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Canvas(modifier = Modifier.fillMaxWidth().height(132.dp)) {
+                    val barW = minOf(size.width * 0.62f, 26.dp.toPx())
+                    val left = (size.width - barW) / 2
+                    val h = size.height
+                    usualMs?.let { u ->
+                        val yy = h - h * (u / scale)
+                        drawLine(colors.usual.copy(alpha = 0.6f), Offset(0f, yy), Offset(size.width, yy), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+                    }
+                    val r = CornerRadius(barW / 2)
+                    drawRoundRect(colors.sleepHue.start.copy(alpha = colors.trackAlpha * 0.7f), Offset(left, 0f), Size(barW, h), r)
+                    val nightH = h * (d.nightMs / scale)
+                    val napH = h * (d.napMs / scale)
+                    if (nightH > 0f) {
+                        drawRoundRect(
+                            Brush.verticalGradient(listOf(colors.sleepHue.end, colors.sleepHue.start), startY = h - nightH, endY = h),
+                            Offset(left, h - nightH),
+                            Size(barW, nightH),
+                            r,
+                        )
+                    }
+                    if (napH > 0f) drawRoundRect(colors.nap, Offset(left, h - nightH - napH - (if (nightH > 0f) 3.dp.toPx() else 0f)), Size(barW, napH), r)
                 }
-                if (napH > 0f) drawRoundRect(colors.nap, Offset(left, h - nightH - napH - 3.dp.toPx()), Size(barW, napH), r)
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            days.forEach { d ->
-                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        if (d.totalMs > 0) Format.duration(d.totalMs) else "–",
-                        style = NumberStyles.small.copy(fontSize = MaterialTheme.typography.labelSmall.fontSize),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
+                Spacer(Modifier.height(6.dp))
+                Text(dayName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (d.totalMs > 0) Format.duration(d.totalMs) else "–",
+                    style = NumberStyles.small.copy(fontSize = MaterialTheme.typography.labelSmall.fontSize),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+                Text(
+                    if (d.napMs > 0) Format.duration(d.napMs) else " ",
+                    style = NumberStyles.small.copy(fontSize = MaterialTheme.typography.labelSmall.fontSize),
+                    color = napText,
+                    maxLines = 1,
+                )
             }
         }
     }

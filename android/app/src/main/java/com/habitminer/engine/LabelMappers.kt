@@ -25,10 +25,22 @@ object LabelMappers {
     fun periodFrom(label: UserLabelEntity): LocalDate? =
         label.contextJson?.let { json -> fromRe.find(json)?.groupValues?.get(1)?.let { runCatching { LocalDate.parse(it) }.getOrNull() } }
 
-    /** Naps you confirmed, as (start, end). */
+    /** Naps you confirmed or added, as (start, end), overlapping ones merged. */
     fun confirmedNaps(labels: List<UserLabelEntity>): List<Pair<Long, Long>> =
-        labels.filter { it.kind == UserLabelEntity.KIND_NAP && it.value == UserLabelEntity.NAP_ASLEEP }
-            .mapNotNull { l -> napRange(l.refKey) }
+        com.habitminer.analytics.NapRecords.build(napAnswers(labels)).map { it.start to it.end }
+
+    /** Everything you said about naps: asleep, not a nap, or replaced by your own times. */
+    fun napAnswers(labels: List<UserLabelEntity>): List<com.habitminer.analytics.NapAnswer> =
+        labels.filter { it.kind == UserLabelEntity.KIND_NAP }.mapNotNull { l ->
+            val (start, end) = napRange(l.refKey) ?: return@mapNotNull null
+            val asleep =
+                when (l.value) {
+                    UserLabelEntity.NAP_ASLEEP -> true
+                    UserLabelEntity.NAP_AWAKE -> false
+                    else -> null
+                }
+            com.habitminer.analytics.NapAnswer(l.refKey!!, start, end, asleep, l.timestamp)
+        }
 
     fun napRange(key: String?): Pair<Long, Long>? {
         val parts = key?.split('|') ?: return null

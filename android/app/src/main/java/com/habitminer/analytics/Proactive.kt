@@ -6,7 +6,7 @@ import java.time.ZoneId
 import java.time.temporal.IsoFields
 
 /** What kind of prompt went out; stored so the daily budget can be enforced. */
-enum class PromptKind { CHECK_IN, NUDGE, DIGEST, NAP, PERIOD, DEVIATIONS, INSIGHT, REMINDER }
+enum class PromptKind { CHECK_IN, NUDGE, DIGEST, NAP, PERIOD, DEVIATIONS, INSIGHT, REMINDER, MOOD }
 
 data class SentPrompt(
     val kind: PromptKind,
@@ -27,13 +27,17 @@ data class Nudge(
  *   only while the phone is in use, and at least 2 hours apart.
  * - Nudges fire on a long continuous leisure stretch (late at night: 25 min; daytime: 60 min),
  *   at most one per 2 hours.
- * - "Were you asleep?" is asked once per likely nap, within 3 hours of picking the phone up.
+ * - "Were you asleep?" is asked once per likely or long nap, within 4 hours of picking the
+ *   phone up, outside the daily limit.
  * - "What's different?" is asked at most once a day while an unexplained routine change lasts.
  * - The evening summary goes out once, between 21:00 and 23:00, on days with something notable.
  * All of these share the daily limit with check-ins and nudges.
  */
 object PromptPolicy {
     const val MAX_PROMPTS_PER_DAY = 3
+
+    /** How long after a nap it's still worth asking about it. */
+    const val NAP_ASK_WITHIN_MS = 4 * TimeUtil.HOUR
     private const val MIN_GAP_MS = 2 * TimeUtil.HOUR
     private val checkInWindows = listOf(9 until 13, 13 until 17, 17 until 22)
 
@@ -140,10 +144,11 @@ object PromptPolicy {
         zone: ZoneId,
     ): Boolean {
         if (!enabled || !screenOn || nap == null) return false
-        if (nap.confidence == Confidence.LOW || nap.key in answered) return false
-        if (now < nap.end || now - nap.end > 3 * TimeUtil.HOUR) return false
-        if (sent.any { it.kind == PromptKind.NAP && it.time >= nap.end }) return false
-        return promptsToday(sent, now, zone).size < MAX_PROMPTS_PER_DAY
+        if (!NapRecords.worthAsking(nap) || nap.key in answered) return false
+        if (now < nap.end || now - nap.end > NAP_ASK_WITHIN_MS) return false
+        // Once per nap, and not twice within a few minutes. The daily limit doesn't apply: a
+        // nap can only be asked about soon after it, and it's the question people want.
+        return sent.none { it.kind == PromptKind.NAP && (it.time >= nap.end || now - it.time < 10 * TimeUtil.MINUTE) }
     }
 
     fun canAskPeriod(

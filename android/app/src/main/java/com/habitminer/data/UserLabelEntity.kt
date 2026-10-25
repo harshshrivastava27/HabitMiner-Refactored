@@ -34,6 +34,9 @@ data class UserLabelEntity(
         const val NAP_ASLEEP = "asleep"
         const val NAP_AWAKE = "awake"
 
+        /** A nap answer replaced by times you set yourself (an edited nap). */
+        const val NAP_EDITED = "edited"
+
         /**
          * What a stretch of unusual days was (exams, travel…). contextJson holds
          * {"from": "2026-10-04", "until": "2026-10-09"}; until grows while the change lasts.

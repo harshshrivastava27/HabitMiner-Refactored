@@ -73,10 +73,12 @@ data class InsightsBundle(
     // ---- v1.3 ----
     /** Differences from your usual days (last week + today so far) and any multi-day change. */
     val deviations: DeviationReport = DeviationReport(emptyList(), null),
-    /** Likely naps yesterday and today, oldest first. */
+    /** Likely naps yesterday and today you haven't answered yet, oldest first. */
     val naps: List<NapCandidate> = emptyList(),
-    /** Naps you confirmed, (start, end). */
+    /** Naps you confirmed or added (and Health Connect's), (start, end). */
     val confirmedNaps: List<Pair<Long, Long>> = emptyList(),
+    /** The same naps with the answers behind them, to edit or remove them. */
+    val napRecords: List<com.habitminer.analytics.RecordedNap> = emptyList(),
     /** Nap and routine-change answers by key. */
     val answers: Map<String, String> = emptyMap(),
     /** Periods you labelled (exams…), left out of "usual". */
@@ -262,6 +264,7 @@ class InsightsComputer
                 deviations = routine.deviations,
                 naps = routine.naps,
                 confirmedNaps = routine.confirmedNaps,
+                napRecords = routine.napRecords,
                 answers = routine.answers,
                 periods = routine.periods,
                 recentGuesses = guesses.recent,

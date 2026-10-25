@@ -64,6 +64,10 @@ fun InsightPanel(
     onFeedback: (String?) -> Unit,
     onDismissExplainer: () -> Unit,
     onOpen: () -> Unit,
+    /** Answered a moment ago: thanks and Undo, before the card goes away for the day. */
+    justAnswered: Boolean = false,
+    /** Put it away for the day. */
+    onHide: () -> Unit = {},
 ) {
     val haptic = rememberConfirmHaptic()
     val hue = LocalDataColors.current.nowHue
@@ -76,9 +80,23 @@ fun InsightPanel(
         Spacer(Modifier.height(8.dp))
         Text("Why this: ${insight.why}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
-        when (insight.feedback) {
-            null ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        when {
+            insight.feedback != null || justAnswered ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        when (insight.feedback) {
+                            "fewer" -> "Thanks. You'll see fewer about ${insight.family.label.lowercase()}."
+                            else -> "Thanks. You'll see more like this."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { onFeedback(null) }) { Text("Undo", color = hue.text) }
+                }
+            // Asked only now and then; other days the card just says its piece.
+            insight.askFeedback ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     com.habitminer.ui.design.HueButton("Useful", hue, {
                         haptic()
                         onFeedback("useful")
@@ -89,14 +107,8 @@ fun InsightPanel(
                     })
                 }
             else ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (insight.feedback == "useful") "Noted: more like this." else "Noted: fewer about ${insight.family.label.lowercase()}.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { onFeedback(null) }) { Text("Undo", color = hue.text) }
+                TextButton(onClick = onHide, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp)) {
+                    Text("Hide until tomorrow", color = hue.text)
                 }
         }
         AnimatedVisibility(showExplainer) {
@@ -114,9 +126,12 @@ fun InsightPanel(
     }
 }
 
-/** After a check-in: how do you feel? Two optional 1–5 scales. */
+/** How do you feel? Two optional 1–5 scales, after a check-in or as the daily mood check ([daily]). */
 @Composable
-fun MoodPanel(onDone: (mood: Int?, energy: Int?) -> Unit) {
+fun MoodPanel(
+    daily: Boolean = false,
+    onDone: (mood: Int?, energy: Int?) -> Unit,
+) {
     var mood by remember { mutableStateOf<Int?>(null) }
     var energy by remember { mutableStateOf<Int?>(null) }
     val haptic = rememberConfirmHaptic()
@@ -124,7 +139,7 @@ fun MoodPanel(onDone: (mood: Int?, energy: Int?) -> Unit) {
     HeroContainer(accent = hue.start) {
         com.habitminer.ui.design.Kicker("Mood", hue, Icons.Rounded.Mood)
         Spacer(Modifier.height(6.dp))
-        Text("Thanks. How do you feel?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        Text(if (daily) "How was today?" else "Thanks. How do you feel?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(4.dp))
         Text(
             "Optional. Over time this shows how your mood moves with your phone use, as patterns, not causes.",
@@ -144,7 +159,7 @@ fun MoodPanel(onDone: (mood: Int?, energy: Int?) -> Unit) {
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             com.habitminer.ui.design.HueButton("Save", hue, { onDone(mood, energy) }, enabled = mood != null || energy != null)
-            TextButton(onClick = { onDone(null, null) }) { Text("Skip", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            TextButton(onClick = { onDone(null, null) }) { Text(if (daily) "Skip today" else "Skip", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }

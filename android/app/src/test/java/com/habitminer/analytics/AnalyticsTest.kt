@@ -924,8 +924,14 @@ class NapDetectorTest {
         assertTrue(PromptPolicy.canAskNap(true, true, nap, emptySet(), emptyList(), at(day, 15, 20), ZONE))
         assertFalse(PromptPolicy.canAskNap(true, true, nap, setOf(nap.key), emptyList(), at(day, 15, 20), ZONE))
         assertFalse(PromptPolicy.canAskNap(true, true, nap, emptySet(), listOf(SentPrompt(PromptKind.NAP, at(day, 15, 5))), at(day, 15, 20), ZONE))
-        assertFalse(PromptPolicy.canAskNap(true, true, nap, emptySet(), emptyList(), at(day, 19, 0), ZONE))
-        assertFalse(PromptPolicy.canAskNap(true, true, nap.copy(confidence = Confidence.LOW), emptySet(), emptyList(), at(day, 15, 20), ZONE))
+        assertFalse(PromptPolicy.canAskNap(true, true, nap, emptySet(), emptyList(), at(day, 19, 30), ZONE))
+        // A less certain one is still asked about when it's an hour or more.
+        assertTrue(PromptPolicy.canAskNap(true, true, nap.copy(confidence = Confidence.LOW), emptySet(), emptyList(), at(day, 15, 20), ZONE))
+        val short = NapCandidate(at(day, 14, 10), at(day, 15, 0), Confidence.LOW, emptyList())
+        assertFalse(PromptPolicy.canAskNap(true, true, short, emptySet(), emptyList(), at(day, 15, 20), ZONE))
+        // Three other questions today don't hold it back.
+        val busyDay = listOf(9, 11, 13).map { SentPrompt(PromptKind.CHECK_IN, at(day, it, 0)) }
+        assertTrue(PromptPolicy.canAskNap(true, true, nap, emptySet(), busyDay, at(day, 15, 20), ZONE))
     }
 }
 
@@ -1428,9 +1434,9 @@ class OnTheGoTest {
     }
 
     @Test
-    fun `activity recognition wins over the step counter`() {
-        val samples = sessions.map { sample(it.start + 30_000).copy(recentSteps = 80) }
-        // Steps everywhere (the phone swinging in a hand), but only 10:50 to 11:50 in a vehicle.
+    fun `activity recognition adds trips in a vehicle`() {
+        // No steps, but in a vehicle from 10:50 to 11:50.
+        val samples = sessions.map { sample(it.start + 30_000).copy(recentSteps = 0) }
         val activities = listOf(at(day, 8, 0) to "still", at(day, 10, 50) to "vehicle", at(day, 11, 50) to "still")
         val moving = ContextInsights.compute(sessions, samples, ZONE, activities = activities).single { it.kind == InsightKind.MOVING }
         assertTrue(moving.detail.contains("activity recognition"))
@@ -1448,5 +1454,91 @@ class NapRetryTest {
         val samples = listOf(stepsSample(at(day, 13, 20), 900), stepsSample(at(day, 14, 30), 0), stepsSample(at(day, 15, 1), 0, lux = 3f))
         val naps = NapDetector.candidates(sessions, emptyList(), samples, day, at(day, 18), ZONE, null)
         assertEquals(listOf(at(day, 13, 21) to at(day, 15, 0)), naps.map { it.start to it.end })
+    }
+}
+
+class NapRecordsTest {
+    private val day = d(5)
+
+    private fun answer(
+        h1: Int,
+        m1: Int,
+        h2: Int,
+        m2: Int,
+        asleep: Boolean?,
+        at: Long,
+    ): NapAnswer {
+        val a = at(day, h1, m1)
+        val b = at(day, h2, m2)
+        return NapAnswer(NapRecords.key(a, b), a, b, asleep, at)
+    }
+
+    @Test
+    fun `the same nap answered twice as it grew counts once`() {
+        // Asked at 11:37 and again at 12:27 for the nap that started at 10:20: one 2h 07m nap.
+        val naps = NapRecords.build(listOf(answer(10, 20, 11, 37, true, 1), answer(10, 20, 12, 27, true, 2)))
+        assertEquals(1, naps.size)
+        assertEquals(at(day, 10, 20), naps[0].start)
+        assertEquals(at(day, 12, 27), naps[0].end)
+        assertEquals(2, naps[0].keys.size)
+    }
+
+    @Test
+    fun `the latest answer wins, and edited or removed naps drop out`() {
+        val changedMind = listOf(answer(14, 0, 15, 0, true, 1), answer(14, 0, 15, 0, false, 2))
+        assertTrue(NapRecords.build(changedMind).isEmpty())
+        val edited = listOf(answer(14, 0, 15, 0, true, 1), answer(14, 0, 15, 0, null, 2), answer(13, 40, 15, 10, true, 2))
+        assertEquals(listOf(at(day, 13, 40) to at(day, 15, 10)), NapRecords.build(edited).map { it.start to it.end })
+    }
+
+    @Test
+    fun `several naps a day stay separate`() {
+        val naps = NapRecords.build(listOf(answer(10, 0, 11, 0, true, 1), answer(12, 0, 13, 0, true, 1)), health = listOf(at(day, 16, 0) to at(day, 16, 40)))
+        assertEquals(3, naps.size)
+        assertTrue(naps[2].fromHealthConnect)
+        assertEquals(2 * 60 * MIN + 40 * MIN, naps.sumOf { it.durationMs })
+    }
+
+    @Test
+    fun `a nap seen again once it grew isn't asked about twice`() {
+        val answers = listOf(answer(15, 28, 16, 56, true, 1))
+        val grown = NapCandidate(at(day, 15, 28), at(day, 17, 41), Confidence.HIGH, emptyList())
+        assertTrue(NapRecords.answered(grown, answers))
+        val later = NapCandidate(at(day, 18, 0), at(day, 19, 0), Confidence.HIGH, emptyList())
+        assertFalse(NapRecords.answered(later, answers))
+    }
+}
+
+class FeedbackAskTest {
+    private val today = d(20)
+
+    @Test
+    fun `asks every other day while learning`() {
+        assertTrue(FeedbackAsk.shouldAsk(emptyList(), null, today))
+        assertFalse(FeedbackAsk.shouldAsk(emptyList(), today.minusDays(1), today))
+        assertTrue(FeedbackAsk.shouldAsk(emptyList(), today.minusDays(2), today))
+        // Once it asked today, it keeps asking today (the card doesn't change its mind).
+        assertTrue(FeedbackAsk.shouldAsk(emptyList(), today, today))
+    }
+
+    @Test
+    fun `with enough answers it only checks in now and then`() {
+        val answers = (1..5).map { today.minusDays(it * 2L) }
+        assertFalse(FeedbackAsk.shouldAsk(answers, today.minusDays(3), today))
+        assertFalse(FeedbackAsk.shouldAsk(answers, today.minusDays(13), today))
+        assertTrue(FeedbackAsk.shouldAsk(answers, today.minusDays(14), today))
+    }
+}
+
+class MoodScheduleTest {
+    private val day = d(5)
+
+    @Test
+    fun `the mood check is due from its time until answered or skipped`() {
+        assertFalse(MoodSchedule.due(true, 20 * 60, false, false, at(day, 19, 59), ZONE))
+        assertTrue(MoodSchedule.due(true, 20 * 60, false, false, at(day, 20, 0), ZONE))
+        assertFalse(MoodSchedule.due(true, 20 * 60, true, false, at(day, 21, 0), ZONE))
+        assertFalse(MoodSchedule.due(true, 20 * 60, false, true, at(day, 21, 0), ZONE))
+        assertFalse(MoodSchedule.due(false, 20 * 60, false, false, at(day, 21, 0), ZONE))
     }
 }

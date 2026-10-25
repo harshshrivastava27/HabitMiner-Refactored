@@ -224,6 +224,8 @@ fun RoutineShiftCard(
 @Composable
 fun NapQuestionCard(
     nap: NapCandidate,
+    /** "Yes, at other times": set the nap's times yourself. */
+    onAdjust: (() -> Unit)? = null,
     onAnswer: (Boolean) -> Unit,
 ) {
     val zone = ZoneId.systemDefault()
@@ -255,6 +257,11 @@ fun NapQuestionCard(
                 haptic()
                 onAnswer(false)
             })
+        }
+        if (onAdjust != null) {
+            androidx.compose.material3.TextButton(onClick = onAdjust, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp)) {
+                Text("Yes, but at other times", color = hue.text)
+            }
         }
     }
 }

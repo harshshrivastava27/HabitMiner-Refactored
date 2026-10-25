@@ -53,11 +53,10 @@ object ContextInsights {
     private const val SAME_TRIP_MS = 10 * TimeUtil.MINUTE
 
     /**
-     * Whether you were really going somewhere at [time]: Android's activity recognition says
-     * cycling or in a vehicle, or walking or running with the step counter agreeing (it only
-     * reports changes, so a missed "still" would otherwise leave you walking for hours), or
-     * (without it) the step counter saw walking right then. Moving the phone around in your
-     * hand isn't enough.
+     * Whether you were really going somewhere at [time]: the step counter saw walking right
+     * then, or Android's activity recognition says cycling or in a vehicle, or walking with no
+     * step reading to say otherwise (it only reports changes, so a missed "still" would leave
+     * you walking for hours). Moving the phone around in your hand isn't enough.
      */
     internal fun movingAt(
         time: Long,
@@ -65,13 +64,13 @@ object ContextInsights {
         activities: List<Pair<Long, String>>,
     ): Boolean? {
         val walkingSteps = index.nearest(time, 3 * TimeUtil.MINUTE)?.recentSteps?.let { it >= ContextLabels.WALKING_STEPS }
-        if (activities.isNotEmpty()) {
-            val last = activities.lastOrNull { it.first <= time } ?: return walkingSteps
-            if (time - last.first > ACTIVITY_VALID_MS) return walkingSteps
-            if (last.second !in MOVING_TYPES) return false
-            return if (last.second in ON_FOOT) walkingSteps ?: true else true
+        if (walkingSteps == true) return true
+        val last = activities.lastOrNull { it.first <= time }?.takeIf { time - it.first <= ACTIVITY_VALID_MS } ?: return walkingSteps
+        return when (last.second) {
+            in ON_FOOT -> walkingSteps ?: true
+            in MOVING_TYPES -> true
+            else -> false
         }
-        return walkingSteps
     }
 
     private val ON_FOOT = setOf("walking", "running")
@@ -152,7 +151,7 @@ object ContextInsights {
         if (trips >= 3) {
             val topMovingApp =
                 perApp.filter { it.value.moving > 0 }.maxByOrNull { it.value.moving }?.key
-            val source = if (acts.isNotEmpty()) "Android's activity recognition" else "the step counter"
+            val source = if (acts.isNotEmpty()) "the step counter and Android's activity recognition" else "the step counter"
             out.add(
                 ContextInsight(
                     InsightKind.MOVING,

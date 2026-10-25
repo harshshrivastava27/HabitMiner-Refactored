@@ -293,6 +293,33 @@ class ScreenshotTest {
             )
         }
 
+    @Test
+    fun sleepDay() =
+        shoot("22_sleep_day", dark = true) {
+            val ins = data.state.insights!!
+            val date = java.time.LocalDate.of(2026, 10, 2)
+            val day = ins.sleepDays.first { it.date == date }
+            com.habitminer.ui.sleep.DaySleepContent(
+                day = day,
+                naps = ins.napRecords.filter { TimeUtil.dateOf(it.start, SampleData.zone) == date },
+                questions = emptyList(),
+                today = java.time.LocalDate.of(2026, 10, 3),
+                zone = SampleData.zone,
+                onFixNight = {},
+                onAddNap = {},
+                onEditNap = {},
+                onRemoveNap = {},
+                onAnswer = { _, _ -> },
+            )
+        }
+
+    @Test
+    fun todayMoodDaily() =
+        shoot("23_today_mood_daily", dark = true) {
+            val state = data.state.copy(moodDue = true, insights = data.state.insights?.copy(naps = emptyList()))
+            TodayScreen(state, NoActions, NoNav, now = data.now)
+        }
+
     /** Robolectric devices have no sensors; register the five the app uses. */
     private fun registerSensors() {
         val contexts =

@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -68,6 +69,11 @@ data class FeatureSettings(
     val healthConnectStatus: String = "unavailable",
     /** Busy times from the calendar (opt-in). */
     val calendar: Boolean = false,
+    /** The daily mood and energy check, from [moodMinute] (minutes after midnight). */
+    val moodCheck: Boolean = true,
+    val moodMinute: Int = com.habitminer.analytics.MoodSchedule.DEFAULT_MINUTE,
+    /** Also a quiet notification at that time. */
+    val moodReminder: Boolean = false,
 )
 
 /** Progress of bringing an export in. */
@@ -140,6 +146,8 @@ data class HabitUiState(
     val insightSettings: com.habitminer.repository.InsightSettings = com.habitminer.repository.InsightSettings(),
     /** Right after a check-in: ask how you feel (optional). */
     val askMood: Boolean = false,
+    /** The daily mood check is waiting on Today (its time has come and it isn't answered or skipped). */
+    val moodDue: Boolean = false,
     /** "Allow notifications?" on Today was answered with Not now. */
     val notificationAskDismissed: Boolean = false,
     /** Notification access was skipped during setup (it can be turned on later from Status). */
@@ -208,6 +216,9 @@ class HabitViewModel
         private var initialCollectionStarted = false
         private val syncMutex = Mutex()
         private val insightsRefresh = MutableSharedFlow<Unit>(replay = 0, extraBufferCapacity = 1)
+
+        /** Mood check settings changed: work out again whether it's due. */
+        private val moodChanged = MutableSharedFlow<Unit>(replay = 0, extraBufferCapacity = 1)
 
         private data class InsightsInputs(
             val usage: List<AppUsageEntity>,
@@ -522,6 +533,27 @@ class HabitViewModel
             }
         }
 
+        override fun saveNap(
+            start: Long,
+            end: Long,
+            replacing: List<String>,
+        ) {
+            viewModelScope.launch(Dispatchers.IO) {
+                feedbackRepository.saveNap(start, end, replacing, labelContextCapture.captureJson())
+                analysisRepository.invalidate()
+                insightsRefresh.tryEmit(Unit)
+                com.habitminer.proactive.Notifier.cancel(getApplication(), com.habitminer.proactive.Notifier.ID_NAP)
+            }
+        }
+
+        override fun removeNap(keys: List<String>) {
+            viewModelScope.launch(Dispatchers.IO) {
+                feedbackRepository.removeNap(keys)
+                analysisRepository.invalidate()
+                insightsRefresh.tryEmit(Unit)
+            }
+        }
+
         override fun fixNight(
             wakeDate: java.time.LocalDate,
             start: Long,
@@ -607,9 +639,34 @@ class HabitViewModel
             mood: Int?,
             energy: Int?,
         ) {
-            _uiState.update { it.copy(askMood = false) }
-            if (mood == null && energy == null) return
-            viewModelScope.launch(Dispatchers.IO) { feedbackRepository.saveMood(mood, energy) }
+            // The daily check is done for today either way, answered or skipped.
+            _uiState.update { it.copy(askMood = false, moodDue = false) }
+            if (mood == null && energy == null) {
+                getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit()
+                    .putString(PrefsKeys.MOOD_SKIPPED_ON, java.time.LocalDate.now().toString()).apply()
+                return
+            }
+            viewModelScope.launch(Dispatchers.IO) {
+                feedbackRepository.saveMood(mood, energy)
+                com.habitminer.proactive.Notifier.cancel(getApplication(), com.habitminer.proactive.Notifier.ID_MOOD)
+            }
+        }
+
+        private fun moodDue(
+            moods: List<com.habitminer.data.UserLabelEntity>,
+            now: Long,
+        ): Boolean {
+            val prefs = getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+            val zone = java.time.ZoneId.systemDefault()
+            val today = com.habitminer.analytics.TimeUtil.dateOf(now, zone)
+            return com.habitminer.analytics.MoodSchedule.due(
+                enabled = prefs.getBoolean(PrefsKeys.MOOD_CHECK_ENABLED, true),
+                minute = prefs.getInt(PrefsKeys.MOOD_CHECK_MINUTE, com.habitminer.analytics.MoodSchedule.DEFAULT_MINUTE),
+                answeredToday = moods.any { com.habitminer.analytics.TimeUtil.dateOf(it.timestamp, zone) == today },
+                skippedToday = prefs.getString(PrefsKeys.MOOD_SKIPPED_ON, null) == today.toString(),
+                now = now,
+                zone = zone,
+            )
         }
 
         // ---- Insights ----------------------------------------------------------------------
@@ -618,6 +675,12 @@ class HabitViewModel
             key: String,
             value: String?,
         ) {
+            // Show the answer straight away; the refresh below confirms it from the database.
+            _uiState.update { s ->
+                val b = s.insights
+                val i = b?.insight
+                if (b != null && i != null && i.key == key) s.copy(insights = b.copy(insight = i.copy(feedback = value))) else s
+            }
             viewModelScope.launch(Dispatchers.IO) {
                 insightRepository.feedback(key, value)
                 analysisRepository.invalidate()
@@ -627,6 +690,15 @@ class HabitViewModel
         }
 
         override fun dismissInsightExplainer() = insightRepository.update { it.copy(explainerSeen = true) }
+
+        override fun hideInsight(key: String) {
+            insightRepository.hide(key, java.time.LocalDate.now())
+            _uiState.update { s ->
+                val b = s.insights
+                val i = b?.insight
+                if (b != null && i != null && i.key == key) s.copy(insights = b.copy(insight = i.copy(hidden = true))) else s
+            }
+        }
 
         fun insightOpened(key: String) {
             viewModelScope.launch(Dispatchers.IO) { insightRepository.markOpened(key) }
@@ -784,6 +856,9 @@ class HabitViewModel
                 healthConnect = healthConnectSleep.enabled,
                 healthConnectStatus = healthConnectSleep.status().name.lowercase(),
                 calendar = calendarBusy.enabled && calendarBusy.hasPermission(),
+                moodCheck = prefs.getBoolean(PrefsKeys.MOOD_CHECK_ENABLED, true),
+                moodMinute = prefs.getInt(PrefsKeys.MOOD_CHECK_MINUTE, com.habitminer.analytics.MoodSchedule.DEFAULT_MINUTE),
+                moodReminder = prefs.getBoolean(PrefsKeys.MOOD_REMINDER, false),
             )
         }
 
@@ -797,6 +872,20 @@ class HabitViewModel
         }
 
         fun setCheckInsEnabled(enabled: Boolean) = setFlag(PrefsKeys.CHECKINS_ENABLED, enabled)
+
+        fun setMoodCheckEnabled(enabled: Boolean) {
+            setFlag(PrefsKeys.MOOD_CHECK_ENABLED, enabled)
+            moodChanged.tryEmit(Unit)
+        }
+
+        fun setMoodReminder(enabled: Boolean) = setFlag(PrefsKeys.MOOD_REMINDER, enabled)
+
+        fun setMoodMinute(minute: Int) {
+            getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putInt(PrefsKeys.MOOD_CHECK_MINUTE, minute).apply()
+            _uiState.update { it.copy(features = readFeatureSettings()) }
+            moodChanged.tryEmit(Unit)
+        }
 
         fun setNudgesEnabled(enabled: Boolean) = setFlag(PrefsKeys.NUDGES_ENABLED, enabled)
 
@@ -1139,6 +1228,15 @@ class HabitViewModel
                             _uiState.update { it.copy(sensingMsToday = ms, sensingModeName = mode) }
                         }
                     }
+                }
+
+                // The daily mood check: due from its time until answered or skipped.
+                launch {
+                    combine(fiveMinutes, feedbackRepository.getMoods(), moodChanged.onStart { emit(Unit) }) { _, moods, _ -> moods }
+                        .collect { moods ->
+                            val due = withContext(Dispatchers.IO) { moodDue(moods, System.currentTimeMillis()) }
+                            _uiState.update { it.copy(moodDue = due) }
+                        }
                 }
 
                 // The shared analysis: shown as soon as anyone (screen or background) computes it,

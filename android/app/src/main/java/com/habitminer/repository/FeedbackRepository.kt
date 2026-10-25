@@ -32,6 +32,11 @@ class FeedbackRepository
 
         fun getCheckIns(): Flow<List<UserLabelEntity>> = labelDao.getByKind(UserLabelEntity.KIND_CHECK_IN)
 
+        fun getMoods(): Flow<List<UserLabelEntity>> = labelDao.getByKind(UserLabelEntity.KIND_MOOD)
+
+        /** Mood answers since [sinceMs], read once (for the background reminder). */
+        suspend fun moodsSince(sinceMs: Long): List<UserLabelEntity> = labelDao.getByKindOnce(UserLabelEntity.KIND_MOOD).filter { it.timestamp >= sinceMs }
+
         /** Nap and period answers, read once (for background prompts). */
         suspend fun napAndPeriodLabels(): List<UserLabelEntity> =
             labelDao.getByKindOnce(UserLabelEntity.KIND_NAP) + labelDao.getByKindOnce(UserLabelEntity.KIND_PERIOD)
@@ -147,6 +152,36 @@ class FeedbackRepository
                     refKey = napKey,
                     contextJson = contextJson,
                 ),
+            )
+        }
+
+        /**
+         * A nap you add, or set new times for: [replacing] are the answers behind the nap being
+         * edited, which give way to the new times. Several naps a day are fine.
+         */
+        suspend fun saveNap(
+            start: Long,
+            end: Long,
+            replacing: List<String>,
+            contextJson: String?,
+        ) {
+            for (key in replacing) saveNapValue(key, UserLabelEntity.NAP_EDITED, null)
+            saveNapValue(com.habitminer.analytics.NapRecords.key(start, end), UserLabelEntity.NAP_ASLEEP, contextJson)
+        }
+
+        /** "That wasn't a nap": the answers behind it become "awake", so it isn't asked again either. */
+        suspend fun removeNap(keys: List<String>) {
+            for (key in keys) saveNapValue(key, UserLabelEntity.NAP_AWAKE, null)
+        }
+
+        private suspend fun saveNapValue(
+            key: String,
+            value: String,
+            contextJson: String?,
+        ) {
+            labelDao.deleteByRef(UserLabelEntity.KIND_NAP, key)
+            labelDao.insert(
+                UserLabelEntity(timestamp = System.currentTimeMillis(), kind = UserLabelEntity.KIND_NAP, value = value, refKey = key, contextJson = contextJson),
             )
         }
 

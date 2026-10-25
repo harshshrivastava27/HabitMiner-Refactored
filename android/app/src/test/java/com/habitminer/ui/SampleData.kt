@@ -247,9 +247,11 @@ object SampleData {
             )
         val confirmedNaps =
             listOf(
-                TimeUtil.at(today.minusDays(1), 15, 0, zone) to TimeUtil.at(today.minusDays(1), 16, 20, zone),
                 TimeUtil.at(today.minusDays(3), 14, 30, zone) to TimeUtil.at(today.minusDays(3), 15, 15, zone),
+                TimeUtil.at(today.minusDays(1), 11, 5, zone) to TimeUtil.at(today.minusDays(1), 11, 50, zone),
+                TimeUtil.at(today.minusDays(1), 15, 0, zone) to TimeUtil.at(today.minusDays(1), 16, 20, zone),
             )
+        val napRecords = confirmedNaps.map { (a, b) -> com.habitminer.analytics.RecordedNap(a, b, listOf(com.habitminer.analytics.NapRecords.key(a, b))) }
         val sleepDays = SleepDays.build(nights, confirmedNaps, today, 7, zone)
         val guesses =
             listOf(
@@ -282,6 +284,7 @@ object SampleData {
                 sleepDays = sleepDays,
                 sleepWeek = SleepDays.summarize(sleepDays, zone),
                 confirmedNaps = confirmedNaps,
+                napRecords = napRecords,
                 usualPickups = PickupAnalyzer.usualPerDay(unlocks, today, zone),
             )
 

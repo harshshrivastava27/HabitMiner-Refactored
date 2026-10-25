@@ -6,6 +6,8 @@ import com.habitminer.analytics.DeviationReport
 import com.habitminer.analytics.LabelledPeriod
 import com.habitminer.analytics.NapCandidate
 import com.habitminer.analytics.NapDetector
+import com.habitminer.analytics.NapRecords
+import com.habitminer.analytics.RecordedNap
 import com.habitminer.analytics.NightSignals
 import com.habitminer.analytics.PlaceInference
 import com.habitminer.analytics.SleepCorrections
@@ -40,8 +42,10 @@ class RoutineAnalysis
             val periods: List<LabelledPeriod>,
             /** Nap and period answers by key. */
             val answers: Map<String, String>,
-            /** Naps you confirmed, (start, end). */
+            /** Naps you confirmed or added and Health Connect's, (start, end), overlaps merged. */
             val confirmedNaps: List<Pair<Long, Long>>,
+            /** The same naps with the answers they're made of, to edit them. */
+            val napRecords: List<RecordedNap> = emptyList(),
             /** How your corrected nights shift the other estimates, if they do. */
             val sleepShift: SleepCorrections.Shift? = null,
         )
@@ -85,18 +89,22 @@ class RoutineAnalysis
                 places.firstOrNull { it.label.equals("Home", ignoreCase = true) }?.placeHash
                     ?: PlaceInference.suggestNames(samples, zone).entries.firstOrNull { it.value == "Home" }?.key
             val knownNaps = LabelMappers.healthNaps(labels)
+            val napAnswers = LabelMappers.napAnswers(labels)
+            val napRecords = NapRecords.build(napAnswers, knownNaps)
+            // Detected naps you haven't said anything about yet.
             val naps =
                 (1 downTo 0).flatMap { back ->
                     val day = today.minusDays(back.toLong())
                     NapDetector.candidates(sessions, unlocks, samples, day, now, zone, nights.firstOrNull { it.wakeDate == day }, homePlace, busy, signals.rings)
-                }.filterNot { c -> knownNaps.any { (a, b) -> a < c.end && b > c.start } }
+                }.filterNot { c -> knownNaps.any { (a, b) -> a < c.end && b > c.start } || NapRecords.answered(c, napAnswers) }
             return Result(
                 nights = nights,
                 deviations = report,
                 naps = naps,
                 periods = periods,
                 answers = LabelMappers.answers(labels),
-                confirmedNaps = (LabelMappers.confirmedNaps(labels) + LabelMappers.healthNaps(labels)).distinct(),
+                confirmedNaps = napRecords.map { it.start to it.end },
+                napRecords = napRecords,
                 sleepShift = SleepCorrections.shift(detected, fixes),
             )
         }

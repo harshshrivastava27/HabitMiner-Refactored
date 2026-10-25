@@ -80,6 +80,18 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var confirmClear by remember { mutableStateOf(false) }
+    var pickingMoodTime by remember { mutableStateOf(false) }
+    if (pickingMoodTime) {
+        com.habitminer.ui.design.TimeDialog(
+            title = "Mood check time",
+            initialMinute = state.features.moodMinute,
+            onConfirm = { m ->
+                viewModel.setMoodMinute(m)
+                pickingMoodTime = false
+            },
+            onDismiss = { pickingMoodTime = false },
+        )
+    }
 
     // The export's share sheet: a one-shot event, not replayed after rotation.
     LaunchedEffect(viewModel) {
@@ -136,7 +148,7 @@ fun SettingsScreen(
         }
 
         item(key = "notifications") {
-            SectionHeader("Questions and reminders", icon = Icons.Rounded.NotificationsActive, iconColor = com.habitminer.ui.theme.LocalDataColors.current.screenHue.start, info = "These share one limit of three a day, so turning more on doesn't mean more interruptions.")
+            SectionHeader("Questions and reminders", icon = Icons.Rounded.NotificationsActive, iconColor = com.habitminer.ui.theme.LocalDataColors.current.screenHue.start, info = "These share one limit of three a day, so turning more on doesn't mean more interruptions. Two are outside it: \"Were you asleep?\" soon after a nap, and the mood check at the time you set.")
             RowGroup {
                 row {
                     ToggleRow(
@@ -145,6 +157,32 @@ fun SettingsScreen(
                         state.features.checkIns,
                         onChange = viewModel::setCheckInsEnabled,
                     )
+                }
+                row {
+                    ToggleRow(
+                        "Daily mood check",
+                        "On Today from ${com.habitminer.analytics.Format.clockFromMinutes(state.features.moodMinute)}: how you feel and your energy, two taps. Skip it any day.",
+                        state.features.moodCheck,
+                        onChange = viewModel::setMoodCheckEnabled,
+                    )
+                }
+                if (state.features.moodCheck) {
+                    row {
+                        ListRow(
+                            "Mood check time",
+                            supporting = "Change when it appears",
+                            trailingText = com.habitminer.analytics.Format.clockFromMinutes(state.features.moodMinute),
+                            onClick = { pickingMoodTime = true },
+                        )
+                    }
+                    row {
+                        ToggleRow(
+                            "Remind me",
+                            "A silent notification at that time if you haven't answered yet.",
+                            state.features.moodReminder,
+                            onChange = viewModel::setMoodReminder,
+                        )
+                    }
                 }
                 row {
                     ToggleRow(

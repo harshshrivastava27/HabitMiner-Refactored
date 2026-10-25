@@ -13,6 +13,7 @@ import com.habitminer.analytics.InsightDelivery
 import com.habitminer.analytics.InsightFrequency
 import com.habitminer.analytics.LikelyActivity
 import com.habitminer.analytics.Moment
+import com.habitminer.analytics.NapRecords
 import com.habitminer.analytics.PickupAnalyzer
 import com.habitminer.analytics.PromptKind
 import com.habitminer.analytics.PromptPolicy
@@ -118,9 +119,10 @@ class ProactiveEngine
                 val analysis = analysis() ?: return
                 val answered = analysis.answers.keys
 
-                // 1. "Were you asleep?" right after a likely nap.
-                val nap = analysis.naps.lastOrNull { it.key !in answered }
-                if (canAsk && PromptPolicy.canAskNap(questionsOn, screenOn, nap, answered, sent, now, zone)) {
+                // 1. "Were you asleep?" right after a nap. Not held back by Do Not Disturb or
+                // being on the move: it only makes sense soon after waking.
+                val nap = analysis.naps.lastOrNull { it.key !in answered && NapRecords.worthAsking(it) }
+                if (PromptPolicy.canAskNap(questionsOn, screenOn, nap, answered, sent, now, zone)) {
                     Notifier.postNapQuestion(context, nap!!, zone)
                     feedbackRepository.recordPromptSent(PromptKind.NAP, now)
                     return
@@ -156,6 +158,25 @@ class ProactiveEngine
                         }
                     DeviationSummary.build(notable)?.let { Notifier.postDeviationSummary(context, it, fold) }
                     feedbackRepository.recordPromptSent(PromptKind.DEVIATIONS, now)
+                    return
+                }
+            }
+
+            // The daily mood check, as a quiet notification when you asked for one.
+            if (!quiet && prefs.getBoolean(PrefsKeys.MOOD_REMINDER, false) && sent.none { it.kind == PromptKind.MOOD && TimeUtil.dateOf(it.time, zone) == TimeUtil.dateOf(now, zone) }) {
+                val today = TimeUtil.dateOf(now, zone)
+                val due =
+                    com.habitminer.analytics.MoodSchedule.due(
+                        enabled = prefs.getBoolean(PrefsKeys.MOOD_CHECK_ENABLED, true),
+                        minute = prefs.getInt(PrefsKeys.MOOD_CHECK_MINUTE, com.habitminer.analytics.MoodSchedule.DEFAULT_MINUTE),
+                        answeredToday = feedbackRepository.moodsSince(TimeUtil.startOfDay(today, zone)).isNotEmpty(),
+                        skippedToday = prefs.getString(PrefsKeys.MOOD_SKIPPED_ON, null) == today.toString(),
+                        now = now,
+                        zone = zone,
+                    )
+                if (due) {
+                    Notifier.postMoodReminder(context)
+                    feedbackRepository.recordPromptSent(PromptKind.MOOD, now)
                     return
                 }
             }

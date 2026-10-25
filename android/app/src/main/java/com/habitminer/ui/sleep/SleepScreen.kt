@@ -69,11 +69,12 @@ import java.util.Locale
 
 private const val HOW_IT_WORKS =
     "HabitMiner estimates sleep from when your phone goes untouched at night, the step counter, " +
-        "darkness and charging. A quick check or an alarm doesn't end the night unless the step counter sees you get up.\n\n" +
-        "Each day counts the night that ended that morning plus naps you confirmed. Times are estimates, so they're shown " +
-        "as \"about\"; regularity matters more than any single night.\n\n" +
-        "If a night is wrong, tap it to fix the times. After three fixes HabitMiner learns how long you usually take to fall " +
-        "asleep and adjusts the other nights."
+        "darkness and charging. A quick check, or an alarm you snooze or sleep through, doesn't end the night; switching " +
+        "off your last alarm does, and so does the step counter seeing you get up.\n\n" +
+        "Each day counts the night that ended that morning plus your naps. Tap a day to see its night and each nap, fix " +
+        "the times, or add a nap HabitMiner missed. Times are estimates, so they're shown as \"about\"; regularity " +
+        "matters more than any single night.\n\n" +
+        "After three fixed nights HabitMiner learns how long you usually take to fall asleep and adjusts the other nights."
 
 @Composable
 fun SleepScreen(
@@ -84,7 +85,24 @@ fun SleepScreen(
     val zone = remember { ZoneId.systemDefault() }
     val insights = state.insights
     var fixing by remember { mutableStateOf<NightToFix?>(null) }
+    // The day open in the day sheet, and the nap being added or changed.
+    var dayOpen by remember { mutableStateOf<java.time.LocalDate?>(null) }
+    var napEditing by remember { mutableStateOf<NapToEdit?>(null) }
+    // Sheets opened from the day sheet go back to it when they close.
+    var backToDay by remember { mutableStateOf<java.time.LocalDate?>(null) }
     val today = insights?.let { TimeUtil.dateOf(it.computedAt, zone) } ?: java.time.LocalDate.now(zone)
+    val now = insights?.computedAt ?: System.currentTimeMillis()
+    // The whole week, days without any sleep recorded too, so each can be opened.
+    val week =
+        remember(insights?.sleepDays, today) {
+            val known = insights?.sleepDays.orEmpty().associateBy { it.date }
+            (6 downTo 0).map { today.minusDays(it.toLong()) }.map { d -> known[d] ?: com.habitminer.analytics.DailySleep(d, null, emptyList()) }
+        }
+
+    fun closeSubSheet() {
+        dayOpen = backToDay
+        backToDay = null
+    }
     fixing?.let { night ->
         FixNightSheet(
             night = night,
@@ -93,17 +111,85 @@ fun SleepScreen(
             onSave = { start, end ->
                 actions.fixNight(night.wakeDate, start, end)
                 fixing = null
+                closeSubSheet()
             },
             onNotSleep = {
                 actions.markNotSleep(night.wakeDate)
                 fixing = null
+                closeSubSheet()
             },
             onUseEstimate = {
                 actions.clearNightFix(night.wakeDate)
                 fixing = null
+                closeSubSheet()
             },
-            onDismiss = { fixing = null },
+            onDismiss = {
+                fixing = null
+                closeSubSheet()
+            },
         )
+    }
+    napEditing?.let { nap ->
+        NapSheet(
+            nap = nap,
+            now = maxOf(now, System.currentTimeMillis()),
+            zone = zone,
+            onSave = { start, end ->
+                actions.saveNap(start, end, nap.replacing)
+                napEditing = null
+                closeSubSheet()
+            },
+            onRemove =
+                if (nap.isNew) {
+                    null
+                } else {
+                    {
+                        actions.removeNap(nap.replacing)
+                        napEditing = null
+                        closeSubSheet()
+                    }
+                },
+            onDismiss = {
+                napEditing = null
+                closeSubSheet()
+            },
+        )
+    }
+    if (insights != null) {
+        dayOpen?.let { date ->
+            val day = week.firstOrNull { it.date == date } ?: com.habitminer.analytics.DailySleep(date, null, emptyList())
+            DaySleepSheet(
+                day = day,
+                naps = insights.napRecords.filter { TimeUtil.dateOf(it.start, zone) == date },
+                questions = insights.naps.filter { TimeUtil.dateOf(it.start, zone) == date && com.habitminer.analytics.NapRecords.worthAsking(it) && it.key !in insights.answers },
+                today = today,
+                zone = zone,
+                onFixNight = {
+                    val n = day.night
+                    fixing =
+                        if (n != null) {
+                            NightToFix(n.wakeDate, n.sleepStart, n.wakeTime, n.source)
+                        } else {
+                            guessNight(date, insights, zone)
+                        }
+                    backToDay = date
+                    dayOpen = null
+                },
+                onAddNap = {
+                    napEditing = napGuess(date, now, zone)
+                    backToDay = date
+                    dayOpen = null
+                },
+                onEditNap = { nap ->
+                    napEditing = NapToEdit(date, nap.start, nap.end, nap.keys)
+                    backToDay = date
+                    dayOpen = null
+                },
+                onRemoveNap = { nap -> actions.removeNap(nap.keys) },
+                onAnswer = { q, asleep -> actions.answerNap(q.key, asleep) },
+                onDismiss = { dayOpen = null },
+            )
+        }
     }
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item(key = "title") { ScreenTitle("Sleep") }
@@ -133,13 +219,7 @@ fun SleepScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(10.dp))
-                    FilledTonalButton(onClick = {
-                        val bed = insights.sleepWeek?.avgBedtimeMinutes ?: (23 * 60)
-                        val wake = insights.sleepSummary?.avgWakeMinutes ?: (7 * 60)
-                        val bedMinute = ((bed % (24 * 60)) + 24 * 60) % (24 * 60)
-                        val start = TimeUtil.at(if (bedMinute >= 15 * 60) today.minusDays(1) else today, bedMinute / 60, bedMinute % 60, zone)
-                        fixing = NightToFix(today, start, TimeUtil.at(today, wake / 60, wake % 60, zone), source = null)
-                    }) { Text("Add last night") }
+                    FilledTonalButton(onClick = { fixing = guessNight(today, insights, zone) }) { Text("Add last night") }
                 }
             }
         }
@@ -242,19 +322,25 @@ fun SleepScreen(
         }
 
         // Naps waiting for an answer.
-        insights.naps.filter { it.confidence != Confidence.LOW && it.key !in insights.answers }.forEach { nap ->
+        insights.naps.filter { com.habitminer.analytics.NapRecords.worthAsking(it) && it.key !in insights.answers }.forEach { nap ->
             item(key = "nap-${nap.key}") {
                 Spacer(Modifier.height(16.dp))
-                NapQuestionCard(nap) { asleep -> actions.answerNap(nap.key, asleep) }
+                NapQuestionCard(
+                    nap,
+                    onAdjust = { napEditing = NapToEdit(TimeUtil.dateOf(nap.start, zone), nap.start, nap.end, listOf(nap.key), fromQuestion = true) },
+                ) { asleep -> actions.answerNap(nap.key, asleep) }
             }
         }
 
-        if (insights.sleepDays.isNotEmpty()) {
+        if (insights.sleepDays.isNotEmpty() || insights.lastNight != null) {
             item(key = "week-header") {
                 SectionHeader("This week", info = HOW_IT_WORKS, icon = Icons.Rounded.BarChart, iconColor = LocalDataColors.current.sleepHue.start)
             }
             item(key = "week") {
-                SleepWeekColumns(insights.sleepDays, usualMs = insights.sleepWeek?.avgTotalMs)
+                SleepWeekColumns(week, usualMs = insights.sleepWeek?.avgTotalMs, onDay = { dayOpen = it.date })
+            }
+            item(key = "week-legend") {
+                WeekLegend(onAddNap = { napEditing = napGuess(today, now, zone) })
             }
             insights.sleepWeek?.let { w ->
                 item(key = "week-stats") {
@@ -304,6 +390,41 @@ fun SleepScreen(
             }
         }
     }
+}
+
+/** A starting guess for a night you're adding: your usual bedtime and wake-up, or 23:00 to 07:00. */
+private fun guessNight(
+    wakeDate: java.time.LocalDate,
+    insights: com.habitminer.engine.InsightsBundle,
+    zone: ZoneId,
+): NightToFix {
+    val bed = insights.sleepWeek?.avgBedtimeMinutes ?: (23 * 60)
+    val wake = insights.sleepSummary?.avgWakeMinutes ?: (7 * 60)
+    val bedMinute = ((bed % (24 * 60)) + 24 * 60) % (24 * 60)
+    val start = TimeUtil.at(if (bedMinute >= 15 * 60) wakeDate.minusDays(1) else wakeDate, bedMinute / 60, bedMinute % 60, zone)
+    return NightToFix(wakeDate, start, TimeUtil.at(wakeDate, wake / 60, wake % 60, zone), source = null)
+}
+
+/** What the colours mean, that a day can be opened, and adding a nap. */
+@Composable
+private fun WeekLegend(onAddNap: () -> Unit) {
+    val c = LocalDataColors.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = ScreenPadding, end = ScreenPadding - 8.dp, top = 4.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        LegendDot(c.sleepHue.start)
+        Text(" Night   ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LegendDot(c.nap)
+        Text(" Naps", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = onAddNap) { Text("Add a nap", color = c.sleepHue.text) }
+    }
+}
+
+@Composable
+private fun LegendDot(color: androidx.compose.ui.graphics.Color) {
+    Canvas(modifier = Modifier.width(10.dp).height(10.dp)) { drawCircle(color) }
 }
 
 /**

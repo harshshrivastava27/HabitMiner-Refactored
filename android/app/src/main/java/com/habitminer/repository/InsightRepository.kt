@@ -49,6 +49,10 @@ data class TodayInsight(
     val open: String,
     val notifiedAt: Long?,
     val feedback: String?,
+    /** Whether to ask "Useful?" today: only now and then (see [com.habitminer.analytics.FeedbackAsk]). */
+    val askFeedback: Boolean = true,
+    /** Put away for the rest of the day. */
+    val hidden: Boolean = false,
 )
 
 /** Picks, stores and remembers feedback on the insight of the day; holds the insight settings. */
@@ -102,13 +106,18 @@ class InsightRepository
                 if (s.frequency == InsightFrequency.OFF) return@withLock null
                 dao.forDate(today.toString())?.let { row ->
                     val family = InsightFamily.of(row.family) ?: return@withLock null
-                    return@withLock if (family in s.enabled) row.toToday(family) else null
+                    return@withLock if (family in s.enabled) row.toToday(family, today) else null
                 }
                 val history =
                     dao.since(today.minusDays(60).toString()).mapNotNull { r ->
                         InsightFamily.of(r.family)?.let { InsightHistory(LocalDate.parse(r.date), it, r.key, r.feedback) }
                     }
                 val pick = InsightPicker.pick(candidates, history, s.enabled, today) ?: return@withLock null
+                // Feedback is asked for only now and then; a new pick decides for the day.
+                val lastAsked = prefs.getString(PrefsKeys.INSIGHT_ASKED_ON, null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                if (com.habitminer.analytics.FeedbackAsk.shouldAsk(history.filter { it.feedback != null }.map { it.date }, lastAsked, today)) {
+                    prefs.edit().putString(PrefsKeys.INSIGHT_ASKED_ON, today.toString()).apply()
+                }
                 val i = pick.insight
                 val row =
                     InsightLogEntity(
@@ -125,8 +134,14 @@ class InsightRepository
                         probability = pick.probability.toFloat(),
                     )
                 val id = dao.insert(row)
-                row.copy(id = id).toToday(i.family)
+                row.copy(id = id).toToday(i.family, today)
             }
+
+        /** Puts today's insight away until tomorrow. */
+        fun hide(
+            key: String,
+            today: LocalDate,
+        ) = prefs.edit().putString(PrefsKeys.INSIGHT_HIDDEN, "$today|$key").apply()
 
         suspend fun feedback(
             key: String,
@@ -143,5 +158,12 @@ class InsightRepository
 
         suspend fun clearAll() = dao.deleteAll()
 
-        private fun InsightLogEntity.toToday(family: InsightFamily) = TodayInsight(id, key, family, title, body, why, effect, open, notifiedAt, feedback)
+        private fun InsightLogEntity.toToday(
+            family: InsightFamily,
+            today: LocalDate,
+        ) = TodayInsight(
+            id, key, family, title, body, why, effect, open, notifiedAt, feedback,
+            askFeedback = prefs.getString(PrefsKeys.INSIGHT_ASKED_ON, null) == today.toString(),
+            hidden = prefs.getString(PrefsKeys.INSIGHT_HIDDEN, null) == "$today|$key",
+        )
     }

@@ -104,4 +104,14 @@ object PrefsKeys {
 
     /** The app that set the next alarm (its alarm screen over the lock screen isn't phone use). */
     const val ALARM_PACKAGE = "alarm_package"
+
+    // Insight feedback asked only now and then; an insight hidden for the day ("date|key").
+    const val INSIGHT_ASKED_ON = "insight_asked_on"
+    const val INSIGHT_HIDDEN = "insight_hidden"
+
+    // The daily mood and energy check.
+    const val MOOD_CHECK_ENABLED = "mood_check_enabled"
+    const val MOOD_CHECK_MINUTE = "mood_check_minute"
+    const val MOOD_REMINDER = "mood_reminder"
+    const val MOOD_SKIPPED_ON = "mood_skipped_on"
 }

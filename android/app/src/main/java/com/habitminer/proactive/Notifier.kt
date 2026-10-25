@@ -53,6 +53,7 @@ object Notifier {
     const val ID_GOAL = 2008
     const val ID_UPDATE = 2009
     const val ID_NOTIFICATION_ASK = 2010
+    const val ID_MOOD = 2011
 
     const val EXTRA_OPEN = "open"
     const val OPEN_CHECKIN = "checkin"
@@ -251,9 +252,25 @@ object Notifier {
                 .setContentIntent(openApp(context, 18, open, insightKey = insight.key))
                 .setTimeoutAfter(6 * 60 * 60 * 1000L)
                 .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+        // Feedback is asked for only now and then, like on Today.
+        if (insight.askFeedback) {
+            builder
                 .addAction(0, "Useful", broadcast(context, 180, CheckInReceiver.ACTION_INSIGHT, insight.key, "useful"))
                 .addAction(0, "Fewer like this", broadcast(context, 181, CheckInReceiver.ACTION_INSIGHT, insight.key, "fewer"))
+        }
         post(context, ID_INSIGHT, builder)
+    }
+
+    /** The daily mood check, quietly, when you asked for a reminder; tapping opens Today where it's waiting. */
+    fun postMoodReminder(context: Context) {
+        val builder =
+            base(context, CHANNEL_QUESTIONS, "A quick question")
+                .setContentTitle("How was today?")
+                .setContentText("Mood and energy, two taps.")
+                .setContentIntent(openApp(context, 19, "today"))
+                .setSilent(true)
+                .setTimeoutAfter(4 * 60 * 60 * 1000L)
+        post(context, ID_MOOD, builder)
     }
 
     /** "A new version is ready", silent, once per version; tapping opens the app where the update banner is. */

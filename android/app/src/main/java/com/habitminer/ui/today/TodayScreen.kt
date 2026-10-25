@@ -49,7 +49,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
@@ -124,6 +126,32 @@ fun TodayScreen(
     val zone = remember { ZoneId.systemDefault() }
     val insights = state.insights
     val today = TimeUtil.dateOf(now, zone)
+    // The insight you just answered: thanked for a few seconds, then put away for the day.
+    var answeredInsight by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(answeredInsight) {
+        val key = answeredInsight ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(6_000L)
+        actions.hideInsight(key)
+        answeredInsight = null
+    }
+    // A nap whose times you're setting ("Yes, but at other times").
+    var napEditing by remember { androidx.compose.runtime.mutableStateOf<com.habitminer.ui.sleep.NapToEdit?>(null) }
+    napEditing?.let { nap ->
+        com.habitminer.ui.sleep.NapSheet(
+            nap = nap,
+            now = maxOf(now, System.currentTimeMillis()),
+            zone = zone,
+            onSave = { start, end ->
+                actions.saveNap(start, end, nap.replacing)
+                napEditing = null
+            },
+            onRemove = {
+                actions.removeNap(nap.replacing)
+                napEditing = null
+            },
+            onDismiss = { napEditing = null },
+        )
+    }
 
     val todaySessions = remember(state.todayAppUsage) { state.todayAppUsage.map(AnalyticsMappers::session) }
     val lastNight = insights?.lastNight?.takeIf { it.wakeDate == today }
@@ -207,20 +235,34 @@ fun TodayScreen(
         // One raised container: the most useful thing to read today.
         val nap =
             insights?.let { ins ->
-                ins.naps.lastOrNull { it.confidence != Confidence.LOW && it.key !in ins.answers && ins.computedAt - it.end <= 12 * TimeUtil.HOUR }
+                ins.naps.lastOrNull { com.habitminer.analytics.NapRecords.worthAsking(it) && it.key !in ins.answers && ins.computedAt - it.end <= 12 * TimeUtil.HOUR }
             }
         val deviation =
             insights?.deviations?.days
                 ?.filter { it.date == today && it.explainedBy == null && state.deviationFeedback[it.key] != UserLabelEntity.FEEDBACK_EXPECTED }
                 ?.maxByOrNull { it.score }
         val contextInsight = insights?.contextInsights?.firstOrNull()
-        val insight = insights?.insight
+        val rawInsight = insights?.insight
+        val justAnswered = rawInsight != null && answeredInsight == rawInsight.key
+        // Answered or put away earlier today: out of the way until tomorrow (and so is today's
+        // difference, which it usually repeats).
+        val insightDone = rawInsight != null && !justAnswered && (rawInsight.hidden || rawInsight.feedback != null)
+        val insight = rawInsight?.takeUnless { insightDone }
         when {
             busySlot -> Unit
             nap != null ->
                 item(key = "nap") {
                     Spacer(Modifier.height(22.dp))
-                    NapQuestionCard(nap) { asleep -> actions.answerNap(nap.key, asleep) }
+                    NapQuestionCard(
+                        nap,
+                        onAdjust = { napEditing = com.habitminer.ui.sleep.NapToEdit(TimeUtil.dateOf(nap.start, zone), nap.start, nap.end, listOf(nap.key), fromQuestion = true) },
+                    ) { asleep -> actions.answerNap(nap.key, asleep) }
+                }
+            // The daily mood check, at its time each day.
+            state.moodDue ->
+                item(key = "mood-daily") {
+                    Spacer(Modifier.height(22.dp))
+                    MoodPanel(daily = true, onDone = actions::answerMood)
                 }
             insight != null ->
                 item(key = "insight-${insight.key}") {
@@ -228,7 +270,12 @@ fun TodayScreen(
                     InsightPanel(
                         insight = insight,
                         showExplainer = !state.insightSettings.explainerSeen,
-                        onFeedback = { v -> actions.insightFeedback(insight.key, v) },
+                        justAnswered = justAnswered,
+                        onFeedback = { v ->
+                            actions.insightFeedback(insight.key, v)
+                            answeredInsight = if (v == null) null else insight.key
+                        },
+                        onHide = { actions.hideInsight(insight.key) },
                         onDismissExplainer = actions::dismissInsightExplainer,
                         onOpen = {
                             when {
@@ -239,7 +286,7 @@ fun TodayScreen(
                         },
                     )
                 }
-            deviation != null ->
+            deviation != null && !insightDone ->
                 item(key = "deviation-${deviation.key}") {
                     Spacer(Modifier.height(22.dp))
                     DeviationPanel(deviation, state.deviationFeedback[deviation.key], nav::openChanges) { v ->

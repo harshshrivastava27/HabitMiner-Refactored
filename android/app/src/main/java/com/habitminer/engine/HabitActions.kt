@@ -27,6 +27,16 @@ interface HabitActions {
         asleep: Boolean,
     )
 
+    /** A nap you add, or new times for one ([replacing] are its [com.habitminer.analytics.RecordedNap.keys]). */
+    fun saveNap(
+        start: Long,
+        end: Long,
+        replacing: List<String>,
+    ) = Unit
+
+    /** "That wasn't a nap" for a nap on record. */
+    fun removeNap(keys: List<String>) = Unit
+
     /** What a routine change was (a [com.habitminer.analytics.PeriodOption] key). */
     fun labelPeriod(
         key: String,
@@ -49,7 +59,7 @@ interface HabitActions {
     /** Goes back to the estimate for the night that ended on [wakeDate]. */
     fun clearNightFix(wakeDate: java.time.LocalDate) = Unit
 
-    /** How you feel after a check-in, 1 (low) to 5 (great); nulls skip. */
+    /** How you feel (after a check-in, or the daily mood check), 1 (low) to 5 (great); nulls skip. */
     fun answerMood(
         mood: Int?,
         energy: Int?,
@@ -60,6 +70,9 @@ interface HabitActions {
         key: String,
         value: String?,
     ) = Unit
+
+    /** Puts today's insight away until tomorrow. */
+    fun hideInsight(key: String) = Unit
 
     fun dismissInsightExplainer() = Unit
 
