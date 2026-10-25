@@ -39,6 +39,13 @@ data class NightSignals(
     val quietHours: List<Pair<Long, Long>> = emptyList(),
     /** Alarm times the clock app had set. */
     val alarms: List<Long> = emptyList(),
+    /**
+     * Alarm screens shown over the lock screen, as (start, end). A short one was switched off or
+     * snoozed; one that stayed up for [Activity.RANG_OUT_MS] or more rang out unheard.
+     */
+    val rings: List<Pair<Long, Long>> = emptyList(),
+    /** The alarm set right now, when it hasn't rung yet. */
+    val upcoming: Long? = null,
 ) {
     companion object {
         /** A screen-on this soon after a notification was the notification lighting it up. */
@@ -55,6 +62,7 @@ data class NightSignals(
          * @param notifications notification times
          * @param quietModes Do Not Disturb changes as (time, on)
          * @param nextAlarms next-alarm changes as (time recorded, alarm time or null when none)
+         * @param rings alarm screens shown over the lock screen, as (start, end)
          */
         fun from(
             screenOn: List<Long>,
@@ -63,6 +71,7 @@ data class NightSignals(
             quietModes: List<Pair<Long, Boolean>>,
             nextAlarms: List<Pair<Long, Long?>>,
             now: Long,
+            rings: List<Pair<Long, Long>> = emptyList(),
         ): NightSignals {
             val unlockSorted = unlocks.sorted()
             val notesSorted = notifications.sorted()
@@ -93,7 +102,8 @@ data class NightSignals(
                     val replacedAt = records.getOrNull(i + 1)?.first
                     if (at > now || (replacedAt != null && replacedAt < at - 60_000L)) null else at
                 }.distinct()
-            return NightSignals(glances, quiet, alarms)
+            val upcoming = records.lastOrNull()?.second?.takeIf { it > now }
+            return NightSignals(glances, quiet, alarms, rings.sortedBy { it.first }, upcoming)
         }
 
         /** Index of the first value >= [t] in a sorted list (size when none). */
@@ -181,6 +191,8 @@ internal data class ActivityCluster(
     val end: Long,
     val usageMs: Long,
     val usedClock: Boolean,
+    /** Unlocks inside the cluster. */
+    val unlocks: Int = 0,
 ) {
     /** An alarm, a glance at the time or a quick reply, not someone who is up. */
     val isBrief: Boolean
@@ -190,32 +202,112 @@ internal data class ActivityCluster(
 internal object Activity {
     const val CLUSTER_GAP_MS = 5 * TimeUtil.MINUTE
 
+    /**
+     * An alarm screen up this long rang out: clock apps give up after a minute or more, while
+     * someone who heard it switches it off or snoozes it within seconds.
+     */
+    const val RANG_OUT_MS = 50_000L
+
+    /**
+     * Phone activity between [from] and [to] grouped into clusters. An alarm switched off or
+     * snoozed from the lock screen counts (you were awake for it); one that rang out unheard
+     * doesn't. [rings] are the alarm screens Extended logs; older data and imports have them as
+     * clock sessions without an unlock.
+     */
     fun clusters(
         sessions: List<UsageSession>,
         unlocks: List<Long>,
         from: Long,
         to: Long,
+        rings: List<Pair<Long, Long>> = emptyList(),
     ): List<ActivityCluster> {
-        data class Iv(val start: Long, val end: Long, val usage: Long, val clock: Boolean)
+        data class Iv(val start: Long, val end: Long, val usage: Long, val clock: Boolean, val unlock: Boolean)
+        val alarms = lockScreenAlarms(sessions, unlocks, rings, from, to)
         val ivs =
             (
-                sessions.filter { it.end > from && it.start < to }.map {
-                    Iv(maxOf(it.start, from), minOf(it.end, to), TimeUtil.usageIn(it, from, to), isClock(it))
-                } + unlocks.filter { it in from until to }.map { Iv(it, it, 0L, false) }
+                sessions.filter { it.end > from && it.start < to && !(isClock(it) && alarms.any { a -> a.first == it.start }) }.map {
+                    Iv(maxOf(it.start, from), minOf(it.end, to), TimeUtil.usageIn(it, from, to), isClock(it), false)
+                } +
+                    alarms.filter { (a, b) -> b - a < RANG_OUT_MS }.map { (a, b) -> Iv(maxOf(a, from), minOf(b, to), b - a, true, false) } +
+                    unlocks.filter { it in from until to }.map { Iv(it, it, 0L, false, true) }
             ).sortedBy { it.start }
         val out = mutableListOf<ActivityCluster>()
         for (iv in ivs) {
             val last = out.lastOrNull()
+            val u = if (iv.unlock) 1 else 0
             if (last != null && iv.start - last.end < CLUSTER_GAP_MS) {
-                out[out.lastIndex] = last.copy(end = maxOf(last.end, iv.end), usageMs = last.usageMs + iv.usage, usedClock = last.usedClock || iv.clock)
+                out[out.lastIndex] =
+                    last.copy(
+                        end = maxOf(last.end, iv.end),
+                        usageMs = last.usageMs + iv.usage,
+                        usedClock = last.usedClock || iv.clock,
+                        unlocks = last.unlocks + u,
+                    )
             } else {
-                out.add(ActivityCluster(iv.start, iv.end, iv.usage, iv.clock))
+                out.add(ActivityCluster(iv.start, iv.end, iv.usage, iv.clock, u))
             }
         }
         return out
     }
 
-    fun isClock(s: UsageSession): Boolean = s.packageName.contains("clock", ignoreCase = true) || s.appName.equals("Clock", ignoreCase = true)
+    /** Start times of alarms that rang out over the lock screen between [from] and [to]. */
+    fun unheardAlarms(
+        sessions: List<UsageSession>,
+        unlocks: List<Long>,
+        from: Long,
+        to: Long,
+        rings: List<Pair<Long, Long>> = emptyList(),
+    ): List<Long> = lockScreenAlarms(sessions, unlocks, rings, from, to).filter { (a, b) -> b - a >= RANG_OUT_MS && a >= from }.map { it.first }
+
+    /**
+     * Alarm screens over the lock screen as (start, end): the logged [rings], plus clock
+     * sessions with no unlock from just before they started until they ended.
+     */
+    private fun lockScreenAlarms(
+        sessions: List<UsageSession>,
+        unlocks: List<Long>,
+        rings: List<Pair<Long, Long>>,
+        from: Long,
+        to: Long,
+    ): List<Pair<Long, Long>> {
+        val logged = rings.filter { (a, b) -> b > from && a < to }
+        val fromSessions =
+            sessions.filter { s ->
+                isClock(s) && s.end > from && s.start < to &&
+                    unlocks.none { it in (s.start - 5_000L)..s.end } &&
+                    logged.none { (a, b) -> a < s.end && b > s.start }
+            }.map { it.start to it.start + it.durationMs }
+        return (logged + fromSessions).sortedBy { it.first }
+    }
+
+    fun isClock(s: UsageSession): Boolean = AlarmApps.isAlarmApp(s.packageName, s.appName)
+
+    /**
+     * Steps taken between [from] and [to], or null when there are no step readings there. Each
+     * reading counts the steps since the previous one, so a reading whose span starts before
+     * [from] only counts the share that falls inside (a walk just before a nap isn't in it).
+     */
+    fun stepsInside(
+        samples: List<ContextSample>,
+        from: Long,
+        to: Long,
+    ): Int? {
+        val withSteps = samples.filter { it.stepsSinceLast != null }.sortedBy { it.timestamp }
+        var total = 0.0
+        var any = false
+        var prev: Long? = null
+        for (s in withSteps) {
+            val t = s.timestamp
+            val p = prev
+            prev = t
+            if (t <= from || t > to) continue
+            any = true
+            val spanStart = p ?: (t - 30 * TimeUtil.MINUTE)
+            val steps = s.stepsSinceLast!!.toDouble()
+            total += if (spanStart >= from || t <= spanStart) steps else steps * (t - from) / (t - spanStart)
+        }
+        return if (any) total.toInt() else null
+    }
 
     /** Steps counted between [from] and [to], or null when there are no step readings there. */
     fun stepsBetween(
@@ -261,9 +353,35 @@ object SleepDetector {
         val windowEnd = minOf(TimeUtil.at(wakeDate, 14, 0, zone), now)
         if (windowEnd <= windowStart) return null
 
-        val clusters = Activity.clusters(sessions, unlocks, windowStart, windowEnd)
-        if (clusters.size < 2) return null
+        val all = Activity.clusters(sessions, unlocks, windowStart, windowEnd, signals.rings)
+        if (all.size < 2) return null
 
+        // Switching the alarm off with no other alarm set for hours is getting up: when the
+        // sleep before it makes a whole night, the night ends there even if the phone then stays
+        // down (sleeping again later is a nap). Too short a night means you slept on after it.
+        for (d in all.indices) {
+            if (!switchedOffForTheDay(all[d], signals)) continue
+            if ((0 until d).none { all[it + 1].start - all[it].end >= MIN_ANCHOR_MS }) continue
+            detectIn(all.subList(0, d + 1), true, sessions, samples, wakeDate, zone, signals)?.let { return it }
+        }
+        return detectIn(all, false, sessions, samples, wakeDate, zone, signals)
+    }
+
+    /**
+     * The night among [clusters]: the longest untouched stretch, joined across brief wake-ups.
+     * With [endsAtAlarm] the last cluster is the alarm you got up to, and snoozes just before it
+     * count as still in bed.
+     */
+    private fun detectIn(
+        clusters: List<ActivityCluster>,
+        endsAtAlarm: Boolean,
+        sessions: List<UsageSession>,
+        samples: List<ContextSample>,
+        wakeDate: LocalDate,
+        zone: ZoneId,
+        signals: NightSignals,
+    ): SleepEstimate? {
+        if (clusters.size < 2) return null
         // Anchor: the longest stretch between two clusters.
         var anchor = -1
         var anchorLen = 0L
@@ -280,27 +398,31 @@ object SleepDetector {
         var last = anchor + 1 // cluster after the sleep
         val wakes = mutableListOf<BriefWake>()
 
-        // Forward: brief wake-up, then back to sleep for a while, without walking around.
+        // Forward: a brief wake-up, then back to sleep for a while, without walking around. A
+        // wake-up can be a few quick checks close together (snoozing, the time, a message):
+        // together they're one episode, and it's brief if it adds up to little use.
         while (last < clusters.size - 1) {
-            val c = clusters[last]
-            val next = clusters[last + 1]
-            if (!c.isBrief || next.start - c.end < MIN_JOIN_GAP_MS) break
+            val ep = episodeForward(clusters, last) ?: break
+            val next = clusters[ep.last + 1]
             if (next.start - clusters[first].end > MAX_SLEEP_MS) break
-            val steps = Activity.stepsBetween(samples, c.start, next.start)
+            val steps = Activity.stepsBetween(samples, ep.start, next.start)
             if (steps != null && steps > GOT_UP_STEPS) break
-            wakes.add(BriefWake(c.start, c.end, c.usedClock))
-            last++
+            for (k in last..ep.last) wakes.add(BriefWake(clusters[k].start, clusters[k].end, clusters[k].usedClock))
+            last = ep.last + 1
         }
-        // Backward: a brief check before finally falling asleep.
+        if (endsAtAlarm && last < clusters.lastIndex && briefEpisode(clusters, last, clusters.lastIndex)) {
+            for (k in last until clusters.lastIndex) wakes.add(BriefWake(clusters[k].start, clusters[k].end, clusters[k].usedClock))
+            last = clusters.lastIndex
+        }
+        // Backward: a brief check (or a few) before finally falling asleep.
         while (first > 0) {
-            val c = clusters[first]
-            val prev = clusters[first - 1]
-            if (!c.isBrief || c.start - prev.end < MIN_JOIN_GAP_MS) break
+            val ep = episodeBackward(clusters, first) ?: break
+            val prev = clusters[ep.first - 1]
             if (clusters[last].start - prev.end > MAX_SLEEP_MS) break
-            val steps = Activity.stepsBetween(samples, prev.end, c.end)
+            val steps = Activity.stepsBetween(samples, prev.end, ep.end)
             if (steps != null && steps > GOT_UP_STEPS) break
-            wakes.add(0, BriefWake(c.start, c.end, c.usedClock))
-            first--
+            for (k in first downTo ep.first) wakes.add(0, BriefWake(clusters[k].start, clusters[k].end, clusters[k].usedClock))
+            first = ep.first - 1
         }
 
         val sleepStart = clusters[first].end
@@ -316,6 +438,84 @@ object SleepDetector {
         val night = build(sessions, samples, wakeDate, sleepStart, wakeTime, wakes, signals, zone, SleepSource.PHONE)
         val untouched = clusters[anchor + 1].start - clusters[anchor].end
         return night.copy(evidence = listOf("phone untouched for ${Format.duration(untouched)}") + night.evidence)
+    }
+
+    /** An alarm this soon after the one you switched off means you meant to sleep on. */
+    private const val NEXT_ALARM_SOON_MS = 2 * TimeUtil.HOUR
+
+    /**
+     * True when [c] is an alarm being switched off (or snoozed for the last time) with no other
+     * alarm set for the next couple of hours. Needs the alarm times Extended records; without
+     * them it's always false.
+     */
+    private fun switchedOffForTheDay(
+        c: ActivityCluster,
+        signals: NightSignals,
+    ): Boolean {
+        if (!c.usedClock) return false
+        val known = signals.alarms + listOfNotNull(signals.upcoming)
+        val rang = known.filter { it in (c.start - 2 * TimeUtil.MINUTE)..(c.end + TimeUtil.MINUTE) }.maxOrNull() ?: return false
+        val next = known.filter { it > maxOf(rang, c.end) + TimeUtil.MINUTE }.minOrNull()
+        return next == null || next - c.end > NEXT_ALARM_SOON_MS
+    }
+
+    /** A run of clusters close together, treated as one wake-up. */
+    private data class Episode(
+        val first: Int,
+        val last: Int,
+        val start: Long,
+        val end: Long,
+    )
+
+    /** The longest a run of quick checks can last and still be a brief wake-up. */
+    private const val MAX_EPISODE_MS = 20 * TimeUtil.MINUTE
+
+    /** Use within a brief wake-up episode: a few quick looks, not getting on with the day. */
+    private const val MAX_EPISODE_USE_MS = 3 * TimeUtil.MINUTE
+
+    private fun briefEpisode(
+        clusters: List<ActivityCluster>,
+        from: Int,
+        to: Int,
+    ): Boolean {
+        val part = clusters.subList(from, to + 1)
+        val use = part.sumOf { it.usageMs }
+        val span = part.last().end - part.first().start
+        val clock = part.any { it.usedClock }
+        return if (from == to) part[0].isBrief else (use <= MAX_EPISODE_USE_MS || (clock && use <= 5 * TimeUtil.MINUTE)) && span <= MAX_EPISODE_MS
+    }
+
+    /**
+     * The brief wake-up episode starting at cluster [i] and followed by a long enough stretch
+     * asleep, or null if it isn't brief or nothing long follows.
+     */
+    private fun episodeForward(
+        clusters: List<ActivityCluster>,
+        i: Int,
+    ): Episode? {
+        var j = i
+        while (true) {
+            if (!briefEpisode(clusters, i, j)) return null
+            if (j >= clusters.size - 1) return null
+            val gap = clusters[j + 1].start - clusters[j].end
+            if (gap >= MIN_JOIN_GAP_MS) return Episode(i, j, clusters[i].start, clusters[j].end)
+            j++
+        }
+    }
+
+    /** The same, going backwards from cluster [i] towards bedtime. */
+    private fun episodeBackward(
+        clusters: List<ActivityCluster>,
+        i: Int,
+    ): Episode? {
+        var j = i
+        while (true) {
+            if (!briefEpisode(clusters, j, i)) return null
+            if (j <= 0) return null
+            val gap = clusters[j].start - clusters[j - 1].end
+            if (gap >= MIN_JOIN_GAP_MS) return Episode(j, i, clusters[j].start, clusters[i].end)
+            j--
+        }
     }
 
     /**
@@ -365,6 +565,18 @@ object SleepDetector {
                 if (stillEvidence) add(if (steps == 0) "no steps" else "barely moved")
                 if (quiet) add("Do Not Disturb on")
                 if (alarm != null) add("alarm set for ${Format.clock(alarm, zone)}")
+                // Alarms that rang out while you slept on (older data has them as Clock use).
+                val rang =
+                    (
+                        signals.rings.filter { (a, b) -> b - a >= Activity.RANG_OUT_MS && a in sleepStart until wakeTime }.map { it.first } +
+                            sessions.filter {
+                                Activity.isClock(it) && it.durationMs >= Activity.RANG_OUT_MS && it.start in sleepStart until wakeTime &&
+                                    wakes.none { w -> it.start in w.start..w.end }
+                            }.map { it.start }
+                    ).distinctBy { it / TimeUtil.MINUTE }.sorted()
+                if (rang.isNotEmpty()) {
+                    add(if (rang.size == 1) "slept through the alarm at ${Format.clock(rang[0], zone)}" else "slept through the alarm ${rang.size} times from ${Format.clock(rang[0], zone)}")
+                }
             }
         // A brief wake-up within a few minutes of a set alarm was the alarm.
         val markedWakes =
@@ -427,7 +639,7 @@ object SleepDetector {
                 // Known awake stretches (from a watch) beat guessing from the phone.
                 awake.filter { (a, b) -> b > a && a >= start && b <= end }.sortedBy { it.first }.map { (a, b) -> BriefWake(a, b, alarm = false) }
             } else {
-                Activity.clusters(sessions, unlocks, start, end).filter { it.start > start && it.end < end }
+                Activity.clusters(sessions, unlocks, start, end, signals.rings).filter { it.start > start && it.end < end }
                     .map { BriefWake(it.start, maxOf(it.end, it.start + TimeUtil.MINUTE / 2), it.usedClock) }
             }
         return build(sessions, samples, wakeDate, start, end, wakes, signals, zone, source)
@@ -501,11 +713,13 @@ object NapDetector {
         homePlace: String? = null,
         /** Busy times from your calendar (opt-in): a still phone in a meeting or class isn't a nap. */
         busy: List<Pair<Long, Long>> = emptyList(),
+        /** Alarm screens over the lock screen (see [NightSignals.rings]). */
+        rings: List<Pair<Long, Long>> = emptyList(),
     ): List<NapCandidate> {
         val from = TimeUtil.at(day, 9, 0, zone)
         val to = minOf(TimeUtil.at(day, 21, 0, zone), now)
         if (to <= from) return emptyList()
-        val clusters = Activity.clusters(sessions, unlocks, from, to)
+        val clusters = Activity.clusters(sessions, unlocks, from, to, rings)
         if (clusters.size < 2) return emptyList()
 
         val out = mutableListOf<NapCandidate>()
@@ -531,10 +745,19 @@ object NapDetector {
             val overlapsNight = night != null && start < night.wakeTime && end > night.sleepStart
             val busyMs = busy.sumOf { (a, b) -> (minOf(b, end) - maxOf(a, start)).coerceAtLeast(0L) }
             val inMeeting = busyMs * 2 >= end - start
-            if (asleep >= MIN_NAP_MS && end - start <= MAX_NAP_MS && endMinute >= 10 * 60 + 30 && !overlapsNight && !inMeeting) {
-                candidate(samples, start, end, homePlace)?.let(out::add)
+            val found =
+                if (asleep >= MIN_NAP_MS && end - start <= MAX_NAP_MS && endMinute >= 10 * 60 + 30 && !overlapsNight && !inMeeting) {
+                    candidate(samples, start, end, homePlace)
+                } else {
+                    null
+                }
+            if (found != null) {
+                out.add(found)
+                i = last
+            } else {
+                // Not a nap from here (for example a walk just before it): try from the next pickup.
+                i++
             }
-            i = last
         }
         return out
     }
@@ -545,7 +768,8 @@ object NapDetector {
         end: Long,
         homePlace: String?,
     ): NapCandidate? {
-        val steps = Activity.stepsBetween(samples, start, end)
+        // Steps taken during it: a walk just before, or getting up at the end, doesn't count.
+        val steps = Activity.stepsInside(samples, start, end - 2 * TimeUtil.MINUTE)
         if (steps != null && steps > MAX_NAP_STEPS) return null
         val inside = samples.filter { it.timestamp in start..end }
         val places = inside.mapNotNull { it.place }.distinct()

@@ -166,6 +166,17 @@ class ContextRepository
 
         suspend fun getLastInsertedUsageTimestamp(): Long? = appUsageDao.getLastInsertedTimestamp()
 
+        /** Whether the lock screen was showing just before [beforeMs], from the stored events (null when unknown). */
+        suspend fun lockedBefore(beforeMs: Long): Boolean? =
+            deviceEventDao.lastKeyguardBefore(beforeMs)?.let { it == com.habitminer.collection.DeviceEvents.KEYGUARD_SHOWN }
+
+        /** Replaces stored sessions: [remove] are deleted and [add] inserted, in one transaction. */
+        suspend fun replaceSessions(
+            remove: List<Long>,
+            add: List<AppUsageEntity>,
+            events: List<com.habitminer.data.DeviceEventEntity> = emptyList(),
+        ) = batchDao.replaceSessions(remove, add, events)
+
         suspend fun getLastUsedNonLauncherPackage(launcherPackages: List<String>): String? =
             if (launcherPackages.isEmpty()) {
                 appUsageDao.getLastUsedPackage()

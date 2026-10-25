@@ -43,16 +43,53 @@ object ContextInsights {
         var lateNight = 0L
     }
 
+    /** Activity-recognition types that mean you were going somewhere. */
+    private val MOVING_TYPES = setOf("walking", "running", "cycling", "vehicle")
+
+    /** An activity reading older than this no longer says what you're doing. */
+    private const val ACTIVITY_VALID_MS = 2 * TimeUtil.HOUR
+
+    /** Moving sessions closer together than this are the same trip. */
+    private const val SAME_TRIP_MS = 10 * TimeUtil.MINUTE
+
+    /**
+     * Whether you were really going somewhere at [time]: Android's activity recognition says
+     * cycling or in a vehicle, or walking or running with the step counter agreeing (it only
+     * reports changes, so a missed "still" would otherwise leave you walking for hours), or
+     * (without it) the step counter saw walking right then. Moving the phone around in your
+     * hand isn't enough.
+     */
+    internal fun movingAt(
+        time: Long,
+        index: SampleIndex,
+        activities: List<Pair<Long, String>>,
+    ): Boolean? {
+        val walkingSteps = index.nearest(time, 3 * TimeUtil.MINUTE)?.recentSteps?.let { it >= ContextLabels.WALKING_STEPS }
+        if (activities.isNotEmpty()) {
+            val last = activities.lastOrNull { it.first <= time } ?: return walkingSteps
+            if (time - last.first > ACTIVITY_VALID_MS) return walkingSteps
+            if (last.second !in MOVING_TYPES) return false
+            return if (last.second in ON_FOOT) walkingSteps ?: true else true
+        }
+        return walkingSteps
+    }
+
+    private val ON_FOOT = setOf("walking", "running")
+
     fun compute(
         sessions: List<UsageSession>,
         samples: List<ContextSample>,
         zone: ZoneId,
         periodLabel: String = "this week",
+        /** Activity-recognition changes as (time, "walking"…), oldest first, when recorded. */
+        activities: List<Pair<Long, String>> = emptyList(),
     ): List<ContextInsight> {
         if (sessions.isEmpty()) return emptyList()
         val index = SampleIndex(samples)
         val perApp = mutableMapOf<String, Acc>()
         val overall = Acc()
+        val acts = activities.sortedBy { it.first }
+        val movingTimes = mutableListOf<Long>()
 
         for (s in sessions) {
             val mid = s.start + (s.end - s.start) / 2
@@ -66,11 +103,12 @@ object ContextInsights {
                     a.knownLight += s.durationMs
                     if (it == Light.DARK) a.dark += s.durationMs
                 }
-                sensors?.let { ContextLabels.motion(it) }?.let {
+                movingAt(mid, index, acts)?.let { moving ->
                     a.knownMotion += s.durationMs
-                    if (it != Motion.STILL) {
+                    if (moving) {
                         a.moving += s.durationMs
                         a.movingSessions++
+                        if (a === overall) movingTimes += mid
                     }
                 }
                 if (any != null) {
@@ -109,16 +147,19 @@ object ContextInsights {
             )
         }
 
-        // Use while moving (walking or more).
-        if (overall.movingSessions >= 3) {
+        // Use while going somewhere, counted as trips: sessions close together are one.
+        val trips = movingTimes.sorted().fold(mutableListOf<Long>()) { acc, t -> if (acc.isEmpty() || t - acc.last() > SAME_TRIP_MS) acc.add(t) else acc[acc.lastIndex] = t; acc }.size
+        if (trips >= 3) {
             val topMovingApp =
-                perApp.filter { it.value.movingSessions > 0 }.maxByOrNull { it.value.movingSessions }?.key
+                perApp.filter { it.value.moving > 0 }.maxByOrNull { it.value.moving }?.key
+            val source = if (acts.isNotEmpty()) "Android's activity recognition" else "the step counter"
             out.add(
                 ContextInsight(
                     InsightKind.MOVING,
-                    "Used your phone while on the move ${overall.movingSessions} times",
-                    if (topMovingApp != null) "Mostly $topMovingApp. Detected with the motion sensor." else "Detected with the motion sensor.",
-                    overall.movingSessions / 5.0,
+                    "Used your phone on the go $trips times $periodLabel",
+                    (if (topMovingApp != null) "Mostly $topMovingApp, " else "") +
+                        "${Format.duration(overall.moving)} in all. From $source, so handling the phone doesn't count.",
+                    trips / 5.0,
                 ),
             )
         }

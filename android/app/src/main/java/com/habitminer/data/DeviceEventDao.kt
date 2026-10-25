@@ -60,4 +60,8 @@ interface DeviceEventDao {
 
     @Query("DELETE FROM device_events")
     suspend fun deleteAll()
+
+    /** The last lock-screen event before [beforeMs]: whether the phone was locked then. */
+    @Query("SELECT eventType FROM device_events WHERE eventType IN ('KEYGUARD_SHOWN', 'KEYGUARD_HIDDEN') AND timestamp < :beforeMs ORDER BY timestamp DESC LIMIT 1")
+    suspend fun lastKeyguardBefore(beforeMs: Long): String?
 }

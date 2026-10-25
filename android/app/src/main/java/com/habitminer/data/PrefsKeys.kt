@@ -101,4 +101,7 @@ object PrefsKeys {
     // Bringing history across from the original HabitMiner.
     const val IMPORT_DONE_AT = "import_done_at"
     const val IMPORT_CARD_DISMISSED = "import_card_dismissed"
+
+    /** The app that set the next alarm (its alarm screen over the lock screen isn't phone use). */
+    const val ALARM_PACKAGE = "alarm_package"
 }

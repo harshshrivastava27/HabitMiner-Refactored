@@ -67,8 +67,22 @@ class UsageIngestor
                         minOf(since - OVERLAP_MS, openSince ?: Long.MAX_VALUE)
                             .coerceAtLeast(now - MAX_LOOKBACK_MS)
 
+                    if (prefs.getInt(KEY_REPAIRED, 0) < REPAIR_VERSION) {
+                        runCatching { repairStoredLocked() }.onFailure { android.util.Log.w("HabitMiner", "Session repair failed", it) }
+                        prefs.edit().putInt(KEY_REPAIRED, REPAIR_VERSION).apply()
+                    }
+
                     val previous = contextRepository.getLastUsedNonLauncherPackage(appIdentityResolver.getLauncherPackages())
-                    val read = collector.read(queryStart, now, since, previous, isHistorical = firstRead)
+                    val read =
+                        collector.read(
+                            queryStart,
+                            now,
+                            since,
+                            previous,
+                            isHistorical = firstRead,
+                            lockedAtStart = contextRepository.lockedBefore(queryStart) ?: false,
+                            alarmPackage = alarmPackage(),
+                        )
 
                     // Events between queryStart and the last cursor were stored by the previous read.
                     val eventCursor = prefs.getLong(KEY_EVENT_CURSOR, if (cursor == null) 0L else since)
@@ -86,6 +100,76 @@ class UsageIngestor
                     read.sessions.size
                 }
             }
+
+        /** The app that set the next alarm, as last recorded. */
+        private fun alarmPackage(): String? =
+            context.getSharedPreferences(com.habitminer.data.PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(com.habitminer.data.PrefsKeys.ALARM_PACKAGE, null)
+
+        /**
+         * Brings stored sessions in line with how they're read now (also after an import):
+         * sessions running past midnight are split so each day has its own time, and alarm
+         * or timer screens shown over the lock screen (an alarm ringing, not phone use)
+         * become ALARM_RING events.
+         */
+        suspend fun repairStored() =
+            withContext(Dispatchers.IO) {
+                mutex.withLock { repairStoredLocked() }
+            }
+
+        private suspend fun repairStoredLocked() {
+            val zone = java.time.ZoneId.systemDefault()
+            val all = contextRepository.getUsageSince(0L)
+            if (all.isEmpty()) return
+            val keyguard =
+                contextRepository.getDeviceEventsOfTypesSince(listOf(DeviceEvents.KEYGUARD_SHOWN, DeviceEvents.KEYGUARD_HIDDEN), 0L)
+                    .sortedBy { it.timestamp }
+            val times = keyguard.map { it.timestamp }
+            val alarmPkg = alarmPackage()
+
+            fun lockedThroughout(
+                start: Long,
+                end: Long,
+            ): Boolean {
+                if (keyguard.isEmpty()) return false
+                var i = times.binarySearch(start).let { if (it >= 0) it else -it - 2 }
+                if (i < 0 || keyguard[i].eventType != DeviceEvents.KEYGUARD_SHOWN) return false
+                // No unlock while it was in front.
+                i++
+                while (i < keyguard.size && keyguard[i].timestamp < end) {
+                    if (keyguard[i].eventType == DeviceEvents.KEYGUARD_HIDDEN) return false
+                    i++
+                }
+                return true
+            }
+
+            val remove = mutableListOf<Long>()
+            val add = mutableListOf<com.habitminer.data.AppUsageEntity>()
+            val rings = mutableListOf<com.habitminer.data.DeviceEventEntity>()
+            for (s in all) {
+                if (com.habitminer.analytics.AlarmApps.isAlarmApp(s.packageName, s.appName, alarmPkg) && lockedThroughout(s.startTime, s.endTime)) {
+                    remove += s.id
+                    rings += com.habitminer.data.DeviceEventEntity(eventType = DeviceEvents.ALARM_RING, packageName = s.packageName, timestamp = s.endTime, detail = "start=${s.startTime}")
+                    continue
+                }
+                if (com.habitminer.analytics.DaySplit.crossesMidnight(s.startTime, s.endTime, zone)) {
+                    remove += s.id
+                    for (p in com.habitminer.analytics.DaySplit.split(s.startTime, s.endTime, s.durationMs, zone)) {
+                        val cal = java.util.Calendar.getInstance().apply { timeInMillis = p.start }
+                        add +=
+                            s.copy(
+                                id = UsageDataCollector.stableSessionId(s.packageName, p.start),
+                                startTime = p.start,
+                                endTime = p.end,
+                                durationMs = p.durationMs,
+                                timeSlot = collector.getTimeSlot(cal.get(java.util.Calendar.HOUR_OF_DAY)),
+                                dayType = collector.getDayType(cal.get(java.util.Calendar.DAY_OF_WEEK)),
+                            )
+                    }
+                }
+            }
+            if (remove.isNotEmpty() || add.isNotEmpty()) contextRepository.replaceSessions(remove, add, rings)
+        }
 
         /** Moves the cursor to [time] without reading, so the log before it (a pause) is skipped. */
         suspend fun skipTo(time: Long) =
@@ -109,6 +193,10 @@ class UsageIngestor
             private const val KEY_EVENT_CURSOR = "event_cursor"
             private const val KEY_OPEN_SINCE = "open_since"
             private const val KEY_LAST_RUN = "last_run"
+            private const val KEY_REPAIRED = "repaired"
+
+            /** Bump when [repairStored] learns something new, so stored sessions are fixed once more. */
+            private const val REPAIR_VERSION = 1
 
             /** Re-read a little before the cursor in case a session closed right at it. */
             private const val OVERLAP_MS = 2 * 60 * 1000L

@@ -156,7 +156,10 @@ class InsightsComputer
             val weekSamples = samples.filter { it.timestamp >= weekStart }
 
             val stateEvents =
-                contextRepository.getDeviceEventsOfTypesSince(listOf(DeviceEvents.SCREEN_ON, DeviceEvents.DND, DeviceEvents.NEXT_ALARM), horizon)
+                contextRepository.getDeviceEventsOfTypesSince(
+                    listOf(DeviceEvents.SCREEN_ON, DeviceEvents.DND, DeviceEvents.NEXT_ALARM, DeviceEvents.ALARM_RING, DeviceEvents.ACTIVITY),
+                    horizon,
+                )
             val signals =
                 NightSignals.from(
                     screenOn = stateEvents.filter { it.eventType == DeviceEvents.SCREEN_ON }.map { it.timestamp },
@@ -171,7 +174,16 @@ class InsightsComputer
                             e.timestamp to DeviceEvents.detailValue(e.detail, "at")?.toLongOrNull()
                         },
                     now = now,
+                    // Alarm screens over the lock screen: logged when they stop, with their start.
+                    rings =
+                        stateEvents.filter { it.eventType == DeviceEvents.ALARM_RING }.map { e ->
+                            (DeviceEvents.detailValue(e.detail, "start")?.toLongOrNull() ?: e.timestamp) to e.timestamp
+                        },
                 )
+            // Activity recognition (walking, in a vehicle…) for "on the go", when it's on.
+            val activities =
+                stateEvents.filter { it.eventType == DeviceEvents.ACTIVITY && it.timestamp >= weekStart - 2 * TimeUtil.HOUR }
+                    .mapNotNull { e -> DeviceEvents.detailValue(e.detail, "type")?.let { e.timestamp to it } }
             // Busy times from the calendar (opt-in) for the two days naps are looked for in.
             val busy = calendarBusy.busy(TimeUtil.startOfDay(today.minusDays(1), zone), now)
             val routine = routineAnalysis.run(sessions, samples, unlocks, labels, places, now, zone, signals, busy)
@@ -238,7 +250,7 @@ class InsightsComputer
                 sleepSummary = SleepDetector.summarize(nights, zone),
                 pickupsToday = pickups,
                 usualPickups = PickupAnalyzer.usualPerDay(unlocks, today, zone, excluded = excluded),
-                contextInsights = ContextInsights.compute(weekSessions, weekSamples, zone),
+                contextInsights = ContextInsights.compute(weekSessions, weekSamples, zone, activities = activities),
                 heatmap = Heatmap.build(sessions, today, zone),
                 typicalDay = TypicalDay.build(sessions, today, now, zone, excluded),
                 dayTypes = DayTypeClusterer.cluster(sessions, today, zone),

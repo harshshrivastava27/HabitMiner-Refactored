@@ -69,12 +69,13 @@ object SleepCorrections {
         samples: List<ContextSample>,
         zone: ZoneId,
         signals: NightSignals = NightSignals(),
+        now: Long = Long.MAX_VALUE,
     ): List<SleepEstimate> {
         if (fixes.isEmpty()) return detected
         val latest = fixes.associateBy { it.wakeDate }
         val shift = shift(detected, latest.values.toList())
         val adjusted =
-            detected.filter { it.wakeDate !in latest }.map { n -> if (shift == null) n else shifted(n, shift) }
+            detected.filter { it.wakeDate !in latest }.map { n -> if (shift == null) n else shifted(n, shift, sessions, now) }
         val yours =
             latest.values.filterNot { it.notSleep }.map { f ->
                 SleepDetector.fromTimes(sessions, unlocks, samples, f.wakeDate, f.start, f.end, zone, signals, f.source, f.awake)
@@ -82,17 +83,31 @@ object SleepCorrections {
         return (adjusted + yours).sortedBy { it.wakeDate }
     }
 
-    private fun shifted(
+    /**
+     * The estimate moved by [shift], within what the phone saw: you can't wake up later than
+     * now, or later than when you started really using the phone (a few quick looks, like
+     * snoozing, don't count as that).
+     */
+    internal fun shifted(
         n: SleepEstimate,
         shift: Shift,
+        sessions: List<UsageSession> = emptyList(),
+        now: Long = Long.MAX_VALUE,
     ): SleepEstimate {
         val start = n.sleepStart + shift.startMs
-        val end = n.wakeTime + shift.endMs
+        val sustained = firstSustainedUse(sessions, n.wakeTime) ?: Long.MAX_VALUE
+        val end = minOf(n.wakeTime + shift.endMs, if (shift.endMs > 0) maxOf(n.wakeTime, sustained) else Long.MAX_VALUE, now)
         if (end - start < TimeUtil.HOUR) return n
         val wakes = n.briefWakes.filter { it.start > start && it.end < end }
         val why = "adjusted by what ${shift.nights} known nights showed"
         return n.copy(sleepStart = start, wakeTime = end, briefWakes = wakes, source = SleepSource.ADJUSTED, evidence = n.evidence + why)
     }
+
+    /** When steady phone use started at or after [from]: the first session of a minute or more. */
+    internal fun firstSustainedUse(
+        sessions: List<UsageSession>,
+        from: Long,
+    ): Long? = sessions.filter { it.start >= from - TimeUtil.MINUTE && it.durationMs >= TimeUtil.MINUTE }.minOfOrNull { it.start }?.coerceAtLeast(from)
 
     private fun median(values: List<Long>): Long {
         val sorted = values.sorted()

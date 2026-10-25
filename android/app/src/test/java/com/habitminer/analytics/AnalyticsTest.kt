@@ -855,13 +855,15 @@ private fun stepsSample(
     lux: Float? = null,
 ) = ContextSample(time, lux, null, false, isScreenOn = lux != null, proximityNear = null, batteryLevel = 50, stepsSinceLast = steps)
 
+/** The clock app on screen for [seconds]: an alarm being snoozed, or ringing out if long. */
 private fun clock(
     date: LocalDate,
     h: Int,
     m: Int,
+    seconds: Long = 20,
 ): UsageSession {
     val start = at(date, h, m)
-    return UsageSession("com.android.deskclock", "Clock", AppCategory.TOOLS, start, start + MIN, MIN)
+    return UsageSession("com.android.deskclock", "Clock", AppCategory.TOOLS, start, start + seconds * 1000, seconds * 1000)
 }
 
 class SleepWakeUpTest {
@@ -1249,5 +1251,202 @@ class UsualPickupsTest {
     @Test
     fun `needs three days`() {
         assertNull(PickupAnalyzer.usualPerDay(day(today.minusDays(1), 30) + day(today.minusDays(2), 40), today, zone))
+    }
+}
+
+class AlarmWakeTest {
+    private val day = d(5)
+
+    /** Phone down at midnight. */
+    private val bedtime = s("A", d(4), 23, 0, 60)
+
+    @Test
+    fun `an alarm that rang out unheard isn't waking up`() {
+        // Rang for ten minutes every twenty and nobody heard it; up at 09:30.
+        val sessions = listOf(bedtime, clock(day, 8, 10, 599), clock(day, 8, 30, 599), clock(day, 8, 50, 599), s("B", day, 9, 30, 10))
+        val est = SleepDetector.detect(sessions, emptyList(), emptyList(), day, at(day, 20), ZONE)!!
+        assertEquals(at(day, 9, 30), est.wakeTime)
+        assertTrue(est.briefWakes.isEmpty())
+        assertTrue(est.evidence.contains("slept through the alarm 3 times from 08:10"))
+    }
+
+    @Test
+    fun `logged alarm screens count like old clock sessions`() {
+        val signals = NightSignals(rings = listOf(at(day, 8, 10) to at(day, 8, 10) + 599_000L, at(day, 7, 0) to at(day, 7, 0) + 15_000L))
+        val est = SleepDetector.detect(listOf(bedtime, s("B", day, 9, 30, 10)), emptyList(), emptyList(), day, at(day, 20), ZONE, signals)!!
+        assertEquals(at(day, 9, 30), est.wakeTime)
+        // The one snoozed at 07:00 was heard; the one at 08:10 wasn't.
+        assertEquals(listOf(at(day, 7, 0)), est.briefWakes.map { it.start })
+        assertTrue(est.evidence.contains("slept through the alarm at 08:10"))
+    }
+
+    @Test
+    fun `an alarm unlocked to switch off is a wake-up, not a ring`() {
+        val sessions = listOf(bedtime, clock(day, 7, 0, 90), s("B", day, 8, 0, 10))
+        val est = SleepDetector.detect(sessions, listOf(at(day, 7, 1)), emptyList(), day, at(day, 20), ZONE)!!
+        assertEquals(at(day, 8, 0), est.wakeTime)
+        assertEquals(1, est.briefWakes.size)
+        assertTrue(est.briefWakes[0].alarm)
+    }
+
+    @Test
+    fun `switching the alarm off for the day ends the night, and sleeping again later is a nap`() {
+        // Snoozed at 08:10, off at 08:20 with the next alarm at 12:27: up, even though the
+        // phone then stays down until 10:19. 10:20 to 12:27 is a nap.
+        val sessions =
+            listOf(bedtime, clock(day, 8, 10, 17), clock(day, 8, 20, 19), s("B", day, 10, 19, 1), clock(day, 12, 27), s("C", day, 12, 28, 15))
+        val signals = NightSignals(alarms = listOf(at(day, 8, 10), at(day, 8, 20), at(day, 12, 27)))
+        val est = SleepDetector.detect(sessions, emptyList(), emptyList(), day, at(day, 20), ZONE, signals)!!
+        assertEquals(at(day, 8, 20), est.wakeTime)
+        assertEquals(1, est.briefWakes.size)
+        val naps = NapDetector.candidates(sessions, emptyList(), emptyList(), day, at(day, 20), ZONE, est)
+        assertEquals(listOf(at(day, 10, 20) to at(day, 12, 27)), naps.map { it.start to it.end })
+    }
+
+    @Test
+    fun `another alarm soon after means sleeping on`() {
+        val sessions = listOf(bedtime, clock(day, 8, 10, 10), s("B", day, 9, 0, 20))
+        val signals = NightSignals(alarms = listOf(at(day, 8, 10), at(day, 8, 45)))
+        val est = SleepDetector.detect(sessions, emptyList(), emptyList(), day, at(day, 9, 30), ZONE, signals)!!
+        assertEquals(at(day, 9, 0), est.wakeTime)
+    }
+
+    @Test
+    fun `too short a night before the alarm means you slept on after it`() {
+        // Asleep at 03:35, alarm off at 06:15, up at 09:47: one night with a brief wake-up.
+        val sessions = listOf(s("A", day, 3, 0, 35), clock(day, 6, 15, 5), s("B", day, 9, 47, 10))
+        val signals = NightSignals(alarms = listOf(at(day, 6, 15)))
+        val est = SleepDetector.detect(sessions, emptyList(), emptyList(), day, at(day, 20), ZONE, signals)!!
+        assertEquals(at(day, 3, 35), est.sleepStart)
+        assertEquals(at(day, 9, 47), est.wakeTime)
+    }
+
+    @Test
+    fun `quick checks close together are one brief wake-up`() {
+        val sessions = listOf(bedtime, s("B", day, 6, 0, 1), s("C", day, 6, 9, 1), s("B", day, 7, 0, 1), s("D", day, 9, 0, 20))
+        val est = SleepDetector.detect(sessions, emptyList(), emptyList(), day, at(day, 20), ZONE)!!
+        assertEquals(at(day, 9, 0), est.wakeTime)
+        assertEquals(3, est.briefWakes.size)
+    }
+
+    @Test
+    fun `the upcoming alarm is the last one set, if it hasn't rung`() {
+        val signals =
+            NightSignals.from(
+                emptyList(), emptyList(), emptyList(), emptyList(),
+                nextAlarms = listOf(at(d(4), 21) to at(day, 8, 10), at(day, 8, 11) to at(day, 8, 45)),
+                now = at(day, 8, 20),
+            )
+        assertEquals(listOf(at(day, 8, 10)), signals.alarms)
+        assertEquals(at(day, 8, 45), signals.upcoming)
+    }
+}
+
+class SleepShiftClampTest {
+    private val day = d(5)
+    private val night = SleepEstimate(day, at(d(4), 23, 0), at(day, 8, 0), Confidence.MEDIUM, 0, null, null, null)
+    private val later = SleepCorrections.Shift(startMs = 0, endMs = 79 * MIN, nights = 4)
+
+    @Test
+    fun `a learned shift never puts the wake-up in the future`() {
+        val n = SleepCorrections.shifted(night, later, now = at(day, 9, 6))
+        assertEquals(at(day, 9, 6), n.wakeTime)
+    }
+
+    @Test
+    fun `a learned shift stops where you started really using the phone`() {
+        val sessions = listOf(s("B", day, 8, 9, 30))
+        val n = SleepCorrections.shifted(night, later, sessions)
+        assertEquals(at(day, 8, 9), n.wakeTime)
+    }
+
+    @Test
+    fun `an earlier shift still applies`() {
+        val n = SleepCorrections.shifted(night, later.copy(endMs = -10 * MIN), now = at(day, 9))
+        assertEquals(at(day, 7, 50), n.wakeTime)
+    }
+}
+
+class DaySplitTest {
+    @Test
+    fun `a session past midnight is shared between the two days`() {
+        val start = at(d(3), 23, 30)
+        val end = at(d(4), 1, 0)
+        val pieces = DaySplit.split(start, end, 90 * MIN, ZONE)
+        assertEquals(listOf(start to at(d(4), 0), at(d(4), 0) to end), pieces.map { it.start to it.end })
+        assertEquals(listOf(30 * MIN, 60 * MIN), pieces.map { it.durationMs })
+    }
+
+    @Test
+    fun `merged visits keep their real total`() {
+        // Spans 60 minutes but was in front for 45: shared by span, adding up exactly.
+        val pieces = DaySplit.split(at(d(3), 23, 40), at(d(4), 0, 40), 45 * MIN, ZONE)
+        assertEquals(15 * MIN, pieces[0].durationMs)
+        assertEquals(30 * MIN, pieces[1].durationMs)
+        assertEquals(45 * MIN, pieces.sumOf { it.durationMs })
+    }
+
+    @Test
+    fun `a session within one day stays whole`() {
+        assertEquals(1, DaySplit.split(at(d(3), 10), at(d(3), 11), 60 * MIN, ZONE).size)
+        assertFalse(DaySplit.crossesMidnight(at(d(3), 23), at(d(4), 0), ZONE))
+        assertTrue(DaySplit.crossesMidnight(at(d(3), 23), at(d(4), 0) + 1, ZONE))
+    }
+}
+
+class AlarmAppsTest {
+    @Test
+    fun `recognises clock apps and the app that set the alarm`() {
+        assertTrue(AlarmApps.isAlarmApp("com.android.deskclock"))
+        assertTrue(AlarmApps.isAlarmApp("com.sec.android.app.clockpackage"))
+        assertTrue(AlarmApps.isAlarmApp("com.vendor.x", "Clock"))
+        assertTrue(AlarmApps.isAlarmApp("com.urbandroid.sleep", alarmPackage = "com.urbandroid.sleep"))
+        assertFalse(AlarmApps.isAlarmApp("com.whatsapp", "WhatsApp"))
+    }
+}
+
+class OnTheGoTest {
+    private val day = d(2)
+
+    /** Twelve quick looks, a minute each, every 20 minutes from 09:00. */
+    private val sessions = (0 until 12).map { s("App", day, 9 + it / 3, (it % 3) * 20, 1) }
+
+    @Test
+    fun `handling the phone at a desk isn't being on the go`() {
+        // The accelerometer says moving (picked up, put down), but no steps.
+        val samples = sessions.map { sample(it.start + 30_000, motion = 1f).copy(recentSteps = 0) }
+        assertTrue(ContextInsights.compute(sessions, samples, ZONE).none { it.kind == InsightKind.MOVING })
+    }
+
+    @Test
+    fun `use while walking is counted in trips`() {
+        val walking = setOf(0, 1, 6, 7, 11)
+        val samples = sessions.mapIndexed { i, it -> sample(it.start + 30_000).copy(recentSteps = if (i in walking) 80 else 0) }
+        val moving = ContextInsights.compute(sessions, samples, ZONE).single { it.kind == InsightKind.MOVING }
+        // Looks 20 minutes apart are separate trips (within ten minutes they'd be one).
+        assertEquals("Used your phone on the go 5 times this week", moving.headline)
+    }
+
+    @Test
+    fun `activity recognition wins over the step counter`() {
+        val samples = sessions.map { sample(it.start + 30_000).copy(recentSteps = 80) }
+        // Steps everywhere (the phone swinging in a hand), but only 10:50 to 11:50 in a vehicle.
+        val activities = listOf(at(day, 8, 0) to "still", at(day, 10, 50) to "vehicle", at(day, 11, 50) to "still")
+        val moving = ContextInsights.compute(sessions, samples, ZONE, activities = activities).single { it.kind == InsightKind.MOVING }
+        assertTrue(moving.detail.contains("activity recognition"))
+        assertEquals("Used your phone on the go 3 times this week", moving.headline)
+    }
+}
+
+class NapRetryTest {
+    private val day = d(5)
+
+    @Test
+    fun `a walk just before a nap doesn't hide it`() {
+        // Walked from 12:40 with the phone untouched, a quick look at 13:20, then a nap until 15:00.
+        val sessions = listOf(s("A", day, 12, 30, 10), s("B", day, 13, 20, 1), s("C", day, 15, 0, 10))
+        val samples = listOf(stepsSample(at(day, 13, 20), 900), stepsSample(at(day, 14, 30), 0), stepsSample(at(day, 15, 1), 0, lux = 3f))
+        val naps = NapDetector.candidates(sessions, emptyList(), samples, day, at(day, 18), ZONE, null)
+        assertEquals(listOf(at(day, 13, 21) to at(day, 15, 0)), naps.map { it.start to it.end })
     }
 }

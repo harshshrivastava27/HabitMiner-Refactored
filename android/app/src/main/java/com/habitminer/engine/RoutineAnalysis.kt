@@ -65,7 +65,7 @@ class RoutineAnalysis
             val yours = LabelMappers.sleepFixes(labels)
             val fixed = yours.map { it.wakeDate }.toSet()
             val fixes = yours + LabelMappers.healthNights(labels, zone).filter { it.wakeDate !in fixed }
-            val nights = SleepCorrections.apply(detected, fixes, sessions, unlocks, samples, zone, signals)
+            val nights = SleepCorrections.apply(detected, fixes, sessions, unlocks, samples, zone, signals, now)
             val report = DeviationFinder.find(sessions, unlocks, nights, today, now, zone, periods)
 
             // A labelled period keeps growing while the change it explains continues.
@@ -88,7 +88,7 @@ class RoutineAnalysis
             val naps =
                 (1 downTo 0).flatMap { back ->
                     val day = today.minusDays(back.toLong())
-                    NapDetector.candidates(sessions, unlocks, samples, day, now, zone, nights.firstOrNull { it.wakeDate == day }, homePlace, busy)
+                    NapDetector.candidates(sessions, unlocks, samples, day, now, zone, nights.firstOrNull { it.wakeDate == day }, homePlace, busy, signals.rings)
                 }.filterNot { c -> knownNaps.any { (a, b) -> a < c.end && b > c.start } }
             return Result(
                 nights = nights,

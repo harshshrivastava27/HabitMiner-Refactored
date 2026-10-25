@@ -28,6 +28,21 @@ abstract class BatchDao {
         if (events.isNotEmpty()) insertEvents(events)
     }
 
+    @Query("DELETE FROM app_usage WHERE id IN (:ids)")
+    protected abstract suspend fun deleteSessions(ids: List<Long>)
+
+    /** Stored sessions rewritten (split at midnight, alarm screens moved to events), all or nothing. */
+    @Transaction
+    open suspend fun replaceSessions(
+        remove: List<Long>,
+        add: List<AppUsageEntity>,
+        events: List<DeviceEventEntity>,
+    ) {
+        remove.chunked(500).forEach { deleteSessions(it) }
+        if (add.isNotEmpty()) insertSessions(add)
+        if (events.isNotEmpty()) insertEvents(events)
+    }
+
     @Query("DELETE FROM deviations WHERE timestamp >= :sinceMs")
     protected abstract suspend fun deleteDeviationsSince(sinceMs: Long)
 

@@ -141,7 +141,12 @@ class ContextEventRecorder
 
         private fun recordNextAlarm() {
             val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val at = runCatching { am.nextAlarmClock?.triggerTime }.getOrNull()
+            val next = runCatching { am.nextAlarmClock }.getOrNull()
+            val at = next?.triggerTime
+            // Which app set it, so its alarm screen can be told apart from using the phone.
+            runCatching { next?.showIntent?.creatorPackage }.getOrNull()?.let { pkg ->
+                if (pkg != context.packageName) prefs.edit().putString(PrefsKeys.ALARM_PACKAGE, pkg).apply()
+            }
             insertIfChanged(DeviceEvents.NEXT_ALARM, "at=${at ?: ""}")
         }
 

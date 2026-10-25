@@ -176,7 +176,12 @@ class UsageDataCollector
             sinceMs: Long,
             prevStoredPackage: String? = null,
             isHistorical: Boolean = false,
+            /** Whether the lock screen was showing at [queryStart] (from the stored events). */
+            lockedAtStart: Boolean = false,
+            /** The app that set the next alarm, when known. */
+            alarmPackage: String? = null,
         ): UsageRead {
+            val zone = java.time.ZoneId.systemDefault()
             val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val events = usageStatsManager.queryEvents(queryStart.coerceAtLeast(0L), endMs)
 
@@ -201,13 +206,45 @@ class UsageDataCollector
                 }
             val stoppedEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) UsageEvents.Event.ACTIVITY_STOPPED else -1
 
+            // Pieces of sessions that ended after sinceMs: all of them are stored again, even a
+            // piece before midnight that itself ended earlier, so a session that was still open
+            // at the last read is replaced in full.
+            val keep = HashSet<Long>()
+
             fun close(
                 pkg: String,
                 start: Long,
                 end: Long,
             ) {
                 val duration = end - start
-                if (duration > 2000) result.add(entity(pkg, start, end, duration, isHistorical))
+                if (duration <= 2000) return
+                // Each day gets the time actually used in it.
+                for (piece in com.habitminer.analytics.DaySplit.split(start, end, duration, zone)) {
+                    val e = entity(pkg, piece.start, piece.end, piece.durationMs, isHistorical)
+                    if (end > sinceMs) keep += e.id
+                    result.add(e)
+                }
+            }
+
+            // An alarm or timer ringing over the lock screen isn't phone use: it's recorded as
+            // an ALARM_RING event instead of a session, for sleep.
+            var locked = lockedAtStart
+            val lockedStarts = HashMap<String, Long>()
+
+            fun alarmRing(
+                pkg: String,
+                start: Long,
+                end: Long,
+            ) {
+                if (end - start <= 2000) return
+                deviceEvents.add(
+                    com.habitminer.data.DeviceEventEntity(
+                        eventType = DeviceEvents.ALARM_RING,
+                        packageName = pkg,
+                        timestamp = end,
+                        detail = "start=$start",
+                    ),
+                )
             }
 
             val event = UsageEvents.Event()
@@ -220,14 +257,27 @@ class UsageDataCollector
                     deviceEvents.add(com.habitminer.data.DeviceEventEntity(eventType = name, timestamp = event.timeStamp))
                 }
 
+                if (type == DeviceEvents.TYPE_KEYGUARD_HIDDEN) {
+                    // Unlocked: an alarm app still in front from here on is being used.
+                    locked = false
+                    for ((pkg0, start0) in lockedStarts) {
+                        alarmRing(pkg0, start0, event.timeStamp)
+                        if (activeCounts.getOrDefault(pkg0, 0) > 0) startTimes[pkg0] = event.timeStamp
+                    }
+                    lockedStarts.clear()
+                }
+
                 // Screen off, lock screen shown or shutdown: whatever was in front has ended.
                 if (type == DeviceEvents.TYPE_SCREEN_NON_INTERACTIVE ||
                     type == DeviceEvents.TYPE_KEYGUARD_SHOWN ||
                     type == DeviceEvents.TYPE_DEVICE_SHUTDOWN
                 ) {
                     for ((activePkg, start) in startTimes) close(activePkg, start, event.timeStamp)
+                    for ((pkg0, start0) in lockedStarts) alarmRing(pkg0, start0, event.timeStamp)
                     startTimes.clear()
                     activeCounts.clear()
+                    lockedStarts.clear()
+                    if (type == DeviceEvents.TYPE_KEYGUARD_SHOWN || type == DeviceEvents.TYPE_DEVICE_SHUTDOWN) locked = true
                     continue
                 }
 
@@ -236,9 +286,12 @@ class UsageDataCollector
                     continue
                 }
 
+                val alarmApp = locked && com.habitminer.analytics.AlarmApps.isAlarmApp(pkg, alarmPackage = alarmPackage)
                 if (type == foregroundEvent) {
                     val count = activeCounts.getOrDefault(pkg, 0)
-                    if (count == 0) startTimes[pkg] = event.timeStamp
+                    if (count == 0) {
+                        if (alarmApp) lockedStarts[pkg] = event.timeStamp else startTimes[pkg] = event.timeStamp
+                    }
                     activeCounts[pkg] = count + 1
                 } else if (type == backgroundEvent || type == stoppedEvent) {
                     val count = activeCounts.getOrDefault(pkg, 0)
@@ -247,10 +300,14 @@ class UsageDataCollector
                     if (newCount == 0) {
                         activeCounts.remove(pkg)
                         startTimes.remove(pkg)?.let { start -> close(pkg, start, event.timeStamp) }
+                        lockedStarts.remove(pkg)?.let { start -> alarmRing(pkg, start, event.timeStamp) }
                     } else {
                         activeCounts[pkg] = newCount
                     }
-                    if (count == 0) startTimes.remove(pkg)
+                    if (count == 0) {
+                        startTimes.remove(pkg)
+                        lockedStarts.remove(pkg)
+                    }
                 }
             }
 
@@ -258,20 +315,29 @@ class UsageDataCollector
             // starts from their start time and replaces the row with the longer session.
             var openSince: Long? = null
             val foreground = startTimes.maxByOrNull { it.value }?.key?.takeIf { endMs - (startTimes[it] ?: 0L) < MAX_OPEN_SESSION_MS }
+            val openStarts = mutableListOf<Long>()
             for ((pkg, start) in startTimes) {
                 val end = minOf(endMs, start + MAX_OPEN_SESSION_MS)
-                if (end - start > 2000L) result.add(entity(pkg, start, end, end - start, isHistorical))
-                if (endMs - start < MAX_OPEN_SESSION_MS) openSince = minOf(openSince ?: start, start)
+                close(pkg, start, end)
+                if (endMs - start < MAX_OPEN_SESSION_MS) openStarts += start
             }
+            // An alarm still ringing over the lock screen: re-read it next time too.
+            for ((_, start) in lockedStarts) if (endMs - start < MAX_OPEN_SESSION_MS) openStarts += start
 
             result.sortBy { it.startTime }
-            val merged = mergeContiguousSessions(result)
+            val merged = mergeContiguousSessions(result, zone)
+            // A session still open may have been merged into an earlier visit to the same app;
+            // the next read has to start from that visit, or both would be stored.
+            for (start in openStarts) {
+                val chainStart = merged.firstOrNull { it.startTime <= start && it.endTime >= start }?.startTime ?: start
+                openSince = minOf(openSince ?: chainStart, chainStart)
+            }
             var tempPrev: String? = null
             for (i in merged.indices) {
                 merged[i] = merged[i].copy(previousPackageName = tempPrev)
                 tempPrev = merged[i].packageName
             }
-            val newSessions = merged.filter { it.endTime > sinceMs }.toMutableList()
+            val newSessions = merged.filter { it.endTime > sinceMs || it.id in keep }.toMutableList()
             if (newSessions.isNotEmpty() && newSessions.first().previousPackageName == null) {
                 newSessions[0] = newSessions[0].copy(previousPackageName = prevStoredPackage)
             }
@@ -312,7 +378,10 @@ class UsageDataCollector
         ): List<AppUsageEntity> =
             read(sinceMs - overlapMs, System.currentTimeMillis(), sinceMs, prevStoredPackage, isHistorical).sessions
 
-        fun mergeContiguousSessions(sessions: List<AppUsageEntity>): MutableList<AppUsageEntity> {
+        fun mergeContiguousSessions(
+            sessions: List<AppUsageEntity>,
+            zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+        ): MutableList<AppUsageEntity> {
             val mergedResult = mutableListOf<AppUsageEntity>()
             for (session in sessions) {
                 if (mergedResult.isEmpty()) {
@@ -322,7 +391,11 @@ class UsageDataCollector
                     // Same app again within 5 minutes counts as one session, but only the time
                     // it was actually in front is added: the gap (screen off, home screen) isn't
                     // use. Counting the whole span inflated screen time.
-                    if (prev.packageName == session.packageName && (session.startTime - prev.endTime) <= 300000L) {
+                    // Never across midnight: each day keeps its own time.
+                    val sameDay =
+                        com.habitminer.analytics.TimeUtil.dateOf(prev.startTime, zone) ==
+                            com.habitminer.analytics.TimeUtil.dateOf(session.startTime, zone)
+                    if (sameDay && prev.packageName == session.packageName && (session.startTime - prev.endTime) <= 300000L) {
                         val newEnd = maxOf(prev.endTime, session.endTime)
                         val added = (session.endTime - maxOf(prev.endTime, session.startTime)).coerceAtLeast(0L)
                         mergedResult[mergedResult.lastIndex] =
@@ -341,15 +414,16 @@ class UsageDataCollector
         companion object {
             /** A session open longer than this is assumed to have missed its end event. */
             const val MAX_OPEN_SESSION_MS = 4 * 60 * 60 * 1000L
-        }
 
-        private fun stableSessionId(
-            packageName: String,
-            startTime: Long,
-        ): Long =
-            "$packageName:$startTime".fold(0xcbf29ce484222325UL.toLong()) { hash, char ->
-                (hash xor char.code.toLong()) * 0x100000001b3L
-            }.let { if (it == 0L) 1L else it }
+            /** Session IDs are a hash of package and start, so re-reading a session replaces it. */
+            fun stableSessionId(
+                packageName: String,
+                startTime: Long,
+            ): Long =
+                "$packageName:$startTime".fold(0xcbf29ce484222325UL.toLong()) { hash, char ->
+                    (hash xor char.code.toLong()) * 0x100000001b3L
+                }.let { if (it == 0L) 1L else it }
+        }
 
         fun collectHistoricalData(): List<AppUsageEntity> {
             val cal = Calendar.getInstance()

@@ -467,6 +467,8 @@ class HabitViewModel
                 if (status.ok) {
                     getApplication<Application>().getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE).edit()
                         .putLong(PrefsKeys.IMPORT_DONE_AT, System.currentTimeMillis()).apply()
+                    // Imported sessions are split at midnight like everything read here.
+                    runCatching { usageIngestor.repairStored() }
                 }
                 _uiState.update { it.copy(exportMessage = status.message, importStatus = status) }
                 loadHistoricalData()

@@ -46,6 +46,13 @@ object DeviceEvents {
     /** The next alarm the clock app has set changed. detail: `at=<epoch ms>` or `at=` when none. */
     const val NEXT_ALARM = "NEXT_ALARM"
 
+    /**
+     * An alarm or timer screen shown over the lock screen without the phone being unlocked:
+     * it rang, but that isn't phone use. Timestamped when it stopped, packageName is the alarm
+     * app; detail `start=<epoch ms>`. A short one was switched off or snoozed, a long one rang out.
+     */
+    const val ALARM_RING = "ALARM_RING"
+
     /** Charger plugged in or out. detail: `level=<0-100>;plug=ac|usb|wireless|`. */
     const val POWER_CONNECTED = "POWER_CONNECTED"
     const val POWER_DISCONNECTED = "POWER_DISCONNECTED"
