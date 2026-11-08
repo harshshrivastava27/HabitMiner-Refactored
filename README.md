@@ -1,232 +1,226 @@
-# HabitMiner 📱🧠
+# HabitMiner Extended 📱🧠
 
-**A Context-Aware Digital Habit & Routine Tracker for Android**
+**A context-aware digital habit, sleep and routine tracker for Android**
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)  
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)  
-[![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com/)
-[![Version](https://img.shields.io/badge/Version-1.3.1-blue.svg)](https://github.com/Reyatsu99/HabitMiner-Refactored/releases)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.3-purple.svg)](https://kotlinlang.org/)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-green.svg)](https://developer.android.com/)
+[![Version](https://img.shields.io/badge/Version-2.0-blue.svg)](#-whats-new-in-extended)
 
----
+HabitMiner Extended is the next version of [HabitMiner](README_OLD.md). It installs as its own app (**HM Extended**, `com.habitminer.extended`) next to the original, can bring the original's history across, and adds a redesigned interface, better sleep and nap tracking, goals, and a long list of accuracy fixes found by using it every day.
 
-## 🎯 What is HabitMiner?
-HabitMiner is an offline-first Android application designed to discover and analyze your digital habits by fusing app usage statistics with physical context sensors. 
-
-Instead of relying on battery-draining GPS tracking or microphone recording, the modern HabitMiner engine uses a lightweight combination of:
-1. **App Usage Stats**: Digital behavior via `UsageStatsManager` (Duration, Session counts).
-2. **Device State**: Screen-on/unlock events and Battery state.
-3. **Physical Context**: Activity Recognition (Still, Walking, Active) and Ambient Light (Lux).
-4. **Notifications**: Tracks notification volumes to gauge digital interruptions.
-
-The on-device **HabitEngine** aggregates this data to build temporal baselines (e.g., Weekday Mornings vs. Weekend Nights), discovers frequent app sequences (e.g., `Instagram → YouTube → Browser`), and detects anomalies or **Deviations** when your digital routine changes significantly.
+Everything stays on the phone. There is no account and no server; data leaves the device only when you export it.
 
 ---
 
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/overview.png" alt="HabitMiner screens: Today, History, Insights, Blueprint and Data health" width="100%">
+  <img src="docs/screenshots/extended/overview.png" alt="HabitMiner Extended: Today, Sleep, Trends, Goals and Status" width="100%">
 </p>
 
 <table>
   <tr>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/today_overview.png" alt="Today" width="250"><br>
+      <img src="docs/screenshots/extended/today.png" alt="Today" width="250"><br>
       <b>Today</b><br>
-      <sub>Screen time against what's usual by now, today's curve vs a typical day, and top apps or categories.</sub>
+      <sub>Rings for screen time, pickups and phone-free time, today against a usual day at this hour, and your intention for the day.</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/today_sleep_pickups.png" alt="Sleep &amp; pickups" width="250"><br>
-      <b>Sleep &amp; pickups</b><br>
-      <sub>Estimated sleep from overnight screen-off time, and how many pickups followed a notification.</sub>
+      <img src="docs/screenshots/extended/today_dark.png" alt="Today, dark" width="250"><br>
+      <b>True-black dark mode</b><br>
+      <sub>One bright colour per measure, the same everywhere it appears: pink for screen time, lime for pickups, violet for sleep.</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/today_routines_context.png" alt="Routines &amp; surroundings" width="250"><br>
-      <b>Routines &amp; surroundings</b><br>
-      <sub>Your most reliable app sequences, current light, motion and battery, and the likely next app.</sub>
+      <img src="docs/screenshots/extended/today_insight.png" alt="Insight of the day" width="250"><br>
+      <b>Insight of the day</b><br>
+      <sub>One thing that stood out, and why. Feedback is asked for only now and then, and steers what comes up.</sub>
     </td>
   </tr>
   <tr>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/today_checkin.png" alt="Quick check-in" width="250"><br>
-      <b>Quick check-in</b><br>
-      <sub>One-tap "what are you doing?" answers, saved as ground-truth labels for evaluation.</sub>
+      <img src="docs/screenshots/extended/sleep.png" alt="Sleep" width="250"><br>
+      <b>Sleep</b><br>
+      <sub>Last night with the reasons it looks like sleep, a fix-the-times sheet, and "Were you asleep?" after a nap.</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/history.png" alt="History timeline" width="250"><br>
-      <b>History timeline</b><br>
-      <sub>A 24-hour strip of app use by category, with light, motion, charging and sleep lanes.</sub>
+      <img src="docs/screenshots/extended/sleep_week.png" alt="Sleep this week" width="250"><br>
+      <b>This week</b><br>
+      <sub>Each day's night with naps stacked on top and the nap time under the total. Tap a day for its details.</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/insights_deviations.png" alt="Unusual moments" width="250"><br>
-      <b>Unusual moments</b><br>
-      <sub>Deviations explained in plain language, with Expected / Unusual feedback.</sub>
+      <img src="docs/screenshots/extended/sleep_day.png" alt="A day's sleep" width="250"><br>
+      <b>A day's sleep</b><br>
+      <sub>The night, each nap with its own times, and the total. Fix the night, or add, change and remove naps.</sub>
     </td>
   </tr>
   <tr>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/insights_routines.png" alt="Routines &amp; predictability" width="250"><br>
-      <b>Routines &amp; predictability</b><br>
-      <sub>Measured next-app accuracy against simple baselines, and routines grouped across time slots.</sub>
+      <img src="docs/screenshots/extended/trends_overview.png" alt="Trends" width="250"><br>
+      <b>Trends</b><br>
+      <sub>The last 7 days against the week before, biggest changes, today against a usual day, and the week heatmap.</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/blueprint_day_and_week.png" alt="Blueprint: day &amp; week" width="250"><br>
-      <b>Blueprint: day &amp; week</b><br>
-      <sub>Today vs a usual day, and a 7-day heatmap of when you use your phone (tap a square for details).</sub>
+      <img src="docs/screenshots/extended/trends_routines.png" alt="Routines" width="250"><br>
+      <b>Routines</b><br>
+      <sub>How predictable your next app is, measured against simple baselines, its latest guesses, and your app sequences.</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/blueprint_day_types.png" alt="Blueprint: kinds of days" width="250"><br>
-      <b>Blueprint: kinds of days</b><br>
-      <sub>Days grouped with k-means, this week vs last week, and estimated sleep per night.</sub>
+      <img src="docs/screenshots/extended/trends_changes.png" alt="Changes" width="250"><br>
+      <b>Changes</b><br>
+      <sub>Days that differ from your usual ones, in both directions, and routine changes such as an exam week.</sub>
     </td>
   </tr>
   <tr>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/blueprint_insights.png" alt="Context insights" width="250"><br>
-      <b>Context insights</b><br>
-      <sub>How surroundings relate to use, such as time in the dark or after midnight.</sub>
+      <img src="docs/screenshots/extended/goals.png" alt="Goals" width="250"><br>
+      <b>Goals</b><br>
+      <sub>Soft targets: a daily intention, a phone-time target, apps to use less or more, and reminders. Nothing is blocked.</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="docs/screenshots/health.png" alt="Data health" width="250"><br>
-      <b>Data health</b><br>
-      <sub>Collection status, battery-aware sensing mode and its cost, and live sensor status.</sub>
+      <img src="docs/screenshots/extended/status.png" alt="Status" width="250"><br>
+      <b>Status</b><br>
+      <sub>Whether collection is working, a permission checklist, and what HabitMiner itself costs in battery.</sub>
     </td>
-    <td width="33%"></td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/extended/weekly_story.png" alt="Weekly Story" width="250"><br>
+      <b>Weekly Story</b><br>
+      <sub>Your last seven days in a few cards, a month at a glance, and one small experiment to try.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/extended/today_mood.png" alt="Daily mood check" width="250"><br>
+      <b>Daily mood check</b><br>
+      <sub>Mood and energy in two taps, at a time you choose, so mood can be read against phone use over time.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/extended/today_import.png" alt="Import" width="250"><br>
+      <b>Bring your data across</b><br>
+      <sub>Import an export from the original HabitMiner: app use, readings, labels and places, with routines rebuilt.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/extended/onboarding.png" alt="First run" width="250"><br>
+      <b>First run</b><br>
+      <sub>What each permission is for, in plain words, before Android asks.</sub>
+    </td>
   </tr>
 </table>
 
-<sub>Screens are rendered by the app's screenshot tests (Robolectric, dark theme) with two weeks of sample data, so the numbers are illustrative. Regenerate with <code>./gradlew testDebugUnitTest --tests "*ScreenshotTest*"</code>; images land in <code>android/app/build/screenshots</code>.</sub>
+<sub>Rendered by the app's screenshot tests (Robolectric) with two weeks of sample data, so the numbers are illustrative. Every push to <code>habitminer-extended</code> regenerates them on the <code>ci-out-habitminer-extended</code> branch. Locally: <code>./gradlew testDebugUnitTest --tests "*ScreenshotTest*"</code>, images in <code>android/app/build/screenshots</code>.</sub>
 
 ---
 
 ## ✨ Features
 
-- **Dynamic App Identity**: Resolves package names to human-readable labels and intelligently filters out Launcher/Home apps from your usage statistics.
-- **Predictive Modeling**: Calculates a predictability score and guesses your next likely app based on your current routine and time of day.
-- **Deviation Detection**: Alerts you to unusual screen time, temporal shifts in app usage, or missing routines by calculating Z-scores against your historical baseline.
-- **100% Offline & Private**: All data collection and machine learning happens on-device using Room Database. No data is sent to the cloud.
-- **Battery Efficient & Resilient Monitoring**: Uses a persistent Foreground Service coupled with a fallback `WorkManager` for continuous, reliable data collection without being killed by OEM battery optimizations.
-- **Robust Data Pipeline**: Intelligent session deduplication merges overlapping app events, and context sensor rate-limiting prevents database bloating.
+**Tracking**
+- **Screen time, pickups and phone-free time** from Android's usage log, with the alarm screen, launchers and system screens left out. Each day counts only the time used in it, also for sessions that run past midnight.
+- **Sleep** from when the phone goes untouched at night, the step counter, darkness and charging. Quick checks, snoozed alarms and alarms you sleep through don't end the night; switching off your last alarm does. Optional Health Connect sleep and calendar busy times.
+- **Naps**: daytime stretches with the phone untouched and no steps prompt "Were you asleep?". Add, change and remove naps yourself, several a day.
+- **Surroundings**: light, motion (accelerometer, step counter and activity recognition), charging, headphones and, if you opt in, Wi-Fi places stored only as a salted hash.
+- **Notifications**: how many pickups followed a notification, per app counts only, never the text.
 
-### New in v1.3
+**Understanding**
+- **Usual days**: every day is compared with up to four weeks of days of the same kind (weekday or weekend), using medians so a few odd days don't skew "usual". Today is compared at the same time of day.
+- **Changes** in both directions (total time, late nights, apps missing or spiking, unlocks, sleep) and routine changes over several days, which you can label (exams, travel, unwell, holiday) to keep them out of "usual".
+- **Next-app model** that learns from what usually follows the current app, the hour, recent apps, notifications, headphones and charging, with its hit rate measured against simple baselines.
+- **Insight of the day**, **Weekly Story**, and context insights such as screen time in the dark or after midnight.
 
-Tuned against two weeks of real data from one of the authors (including an exam week).
+**Acting on it**
+- **Goals**: a daily intention, a phone-time target, apps to use less or more, and reminders when you're over.
+- **Gentle nudges**, an optional **mindful pause** and **focus sessions** (both off by default), a home-screen **widget**, a **Quick Settings tile** and app **shortcuts**.
+- **Quick check-ins** and **Expected / Unusual** answers are saved as ground-truth labels, with the context at the time.
 
-- **Deviations rebuilt**: every day of the last week, and today so far, is compared with up to four weeks of usual days of the same kind (median and median absolute deviation, so a few odd days don't skew "usual"). Differences are reported in both directions: total time, late-night use, usual apps going missing or spiking, rarely used apps, unlocks, and short or shifted sleep. Today is compared at the same time of day. The old detector never fired in 15 days of that data; the new one finds the quiet exam days, the missing game and the late nights.
-- **Routine changes**: several days in a row well above or below usual (e.g. exam week) show as one change with the apps that moved. HabitMiner asks once what's going on (exams, travel, unwell, holiday…); labelled days are kept out of "usual" everywhere, including the usual-by-now curve.
-- **Evening summary**: around 21:00 on days with something notable, with Expected / Unusual buttons that save labels.
-- **Sleep with brief wake-ups**: switching off an alarm or checking the time no longer ends the night. Neighbouring screen-off stretches are joined unless the step counter shows you getting up, so the night is reported as e.g. "03:31 → 08:10, woke briefly 2×".
-- **Sleep per day** (1.3.1): each day's total is the night that ended that morning plus the naps you confirmed that day. Today shows the total with its breakdown (night, time in bed, brief wake-ups, naps); Blueprint → "Sleep this week" shows one bar per day split into night and naps, with the weekly average, naps and how regular your bedtime is. Exported as `sleep_days_*.csv`.
-- **Naps**: daytime stretches of 45+ minutes with the phone untouched and no steps (stronger if the room is dark when you pick the phone up) trigger "Were you asleep?". Confirmed naps appear under Sleep and on the History timeline.
-- **Next-app model**: learns online with recency weighting from what usually follows the current app, the last two apps, the hour of day and apps used in the last hour, and skips share sheets, pickers and call screens. On the authors' last three days: right first time 34% (was 21%), in the top 3 61% (was 41%), against 22% for always guessing the most-used app. Insights → Routines shows what it guessed before each recent switch and what you actually opened.
-- **Export** now includes unlocks and notifications (`device_events_*.csv`).
-
-### New in v1.2
-
-**Pervasive sensing and inference**
-- **Sleep & wake estimate**: the longest overnight stretch with the screen off, with confidence raised by charging and darkness. Also reports phone use in the hour before sleep and how much of it was in the dark.
-- **Pickup triggers**: each unlock is classified as notification-driven (a notification arrived within 2 minutes) or self-initiated, with quick checks (<30 s) counted separately.
-- **Context-tagged insights**: app sessions are joined with the nearest sensor reading, e.g. "45% of your Evony time is in the dark" or "used your phone while on the move 18 times".
-- **Battery-aware sensing**: the sampling interval adapts (5 min when moving with the screen on, 15 min normally, 30 min when idle). Unlocking the phone or opening the app also takes a reading, so "Around you" is current while the phone is in use. Health shows how long sensors were on today.
-- **Motion from two sensors**: a 2.5 s accelerometer window (first 300 ms dropped, since some drivers replay a stale value) is combined with the step counter's last two minutes, so walking with the phone held steady still reads as moving.
-- **Wi-Fi places (opt-in)**: screen time per place (Home / Campus / named by you), stored only as a salted hash of the access point.
-
-**Analytics views**
-- **Today**: usual-by-now comparison with a typical-day curve, apps or categories, sleep, pickups, routines, surroundings.
-- **History**: a 24-hour strip of app use by category with a light/motion/charging lane and sleep, sessions summarised per app.
-- **Insights → Blueprint**: week heatmap (tap for details), typical day, day types (k-means on daily usage profiles), this week vs last week, sleep, context insights, places.
-- **Routines**: the same app sequence is grouped across time slots, worded as "Seen on 10 of the last 10 weekday nights".
-- **Predictability**: measured next-app hit rate on the last 3 days against "most-used app" and random baselines.
-
-**Ground-truth labels**
-- **Check-ins** ("what are you doing?") up to 3 a day, 09:00–22:00, answerable from the notification.
-- **Expected / Unusual** feedback on every deviation.
-- Both are stored with the context at answer time and included in the ZIP export (`labels_*.csv`).
-
-**Proactive**
-- **Nudges** after 25 minutes of late-night leisure use or an hour straight in the day.
-- **Weekly summary** every Sunday evening. Check-ins and nudges share a limit of 3 prompts per day; everything can be switched off in Settings.
-
-**Quality**
-- Plain-Kotlin analytics in `analytics/` with unit tests, plus screenshot tests (Robolectric) for the main screens.
-- CI builds the APK and runs all tests on every push (`.github/workflows/android.yml`).
+**Your data**
+- **Export** everything as a ZIP of CSV files with a README and schema, or a **privacy-safe** export with app names and keys replaced. **Import** exports from either app.
+- **Status** shows whether collection is working and HabitMiner's own CPU, wake-lock and sensor use as a share of battery.
+- **Updates**: checks for a new GitHub release once a day, verifies the download and installs it when you agree.
 
 ---
 
-## 🏗️ Modern Android Architecture
+## 🆕 What's new in Extended
 
-HabitMiner adheres to modern Android development best practices:
+### 2.0: redesign and new features
+- **Vivid redesign**: activity rings on Today, one bright colour per measure, true-black dark mode, coloured icon tiles and gradient charts, five tabs (Today, Trends, Sleep, Goals, Status) each with its own colour, and the Mona Sans typeface.
+- **Separate app** (`com.habitminer.extended`, "HM Extended") that can run next to the original, plus an import card on Today to bring your HabitMiner history across.
+- **Sleep accuracy**: fix-a-night (and HabitMiner learns how long you usually take to fall asleep), sleep evidence, Do Not Disturb, alarm and glance signals, optional Health Connect sleep and calendar busy times.
+- **Engagement**: insight of the day, questions sent at moments you're likely to answer, reminders, Weekly Story, mood check-ins.
+- **Control**: widget, Quick Settings tile, shortcuts, pause and breaks, choosing data sources, and a guide for Android's restricted settings.
+- **Battery**: readings driven by alarms instead of a long wake lock, an incremental usage log, one shared analysis for every screen, and a battery-cost stat on Status.
+- **Export and updates**: insight log and self-health in exports, a privacy-safe option, daily release check with verified install, and a release workflow.
 
-- **UI Layer**: Built entirely with **Jetpack Compose** and Material Design 3.
-- **State Management**: **Unidirectional Data Flow (UDF)** using `StateFlow` and `@HiltViewModel`.
-- **Dependency Injection**: Fully integrated with **Dagger Hilt** to eliminate manual dependency passing and static singletons.
-- **Data Layer**: **Repository Pattern** backed by **Room 2.6.1** with KSP for robust local persistence.
-- **Background Tasks**: Hybrid scheduling managed via **Foreground Services** and **WorkManager 2.9.0**.
-- **Code Quality**: Strict formatting enforced via **ktlint** and Spotless. **Comprehensive JUnit test suite** covering core engine logic and collection edge-cases.
+### Fixes from daily use (B1–B7)
+Seven bugs reported while using the app day to day, all fixed and checked against two full exports. Details, and before/after numbers, are in [docs/BUGS.md](docs/BUGS.md).
+
+| | Problem | What changed |
+|---|---|---|
+| B1 | A quiet alarm nobody heard counted as waking up, and as screen time | An alarm screen over the lock screen is no longer app use. A quickly snoozed alarm is a brief wake-up; one that rang out unheard isn't. |
+| B2 | Day totals missed use that ran past midnight | Sessions are split at midnight, so every total agrees with the heatmap. Stored data is repaired once. |
+| B3 | "On the move 307 times" | Needs the step counter or activity recognition, not a phone moved in your hand, and counts trips. |
+| B4 | A nap wasn't found, no nap notification, no way to add naps | Better nap detection, "Were you asleep?" sent for any nap of an hour or more, and naps added by hand (several a day). |
+| B5 | Week view lost per-day night and nap details | "This week" shows nap time per day; tap a day for the night, each nap and its times. |
+| B6 | Wake-up shown in the future | The learned adjustment can't pass now or your first real use; switching off your last alarm ends the night. |
+| B7 | Insight card kept asking for feedback; mood check rare | Thanks with Undo, then hidden for the day; feedback asked only now and then; mood check at a time you choose. |
+
+On the nights with corrected times, wake-up errors went from up to 163 minutes off to at most 20.
+
+---
+
+## 🏗️ Architecture
+
+- **UI**: Jetpack Compose and Material 3 (Compose BOM 2025.12, Material 3 1.4), adaptive navigation, Glance widget.
+- **State**: unidirectional data flow with `StateFlow` and a Hilt `ViewModel`.
+- **Data**: Room 2.8 with an exported schema, repositories, and SharedPreferences for settings.
+- **Background**: a foreground service for collection with WorkManager as a fallback, and alarm-driven sensor readings.
+- **Analytics**: plain Kotlin in `analytics/` (sleep and nap detection, usual days, changes, next-app model, insights), with no Android dependencies so it's unit-tested directly.
+- **Build**: Kotlin 2.3, AGP 8.11, Hilt 2.57, KSP, minSdk 26, targetSdk 35, compileSdk 36, R8 for release builds.
 
 ```text
-+---------------------+        +-------------------------+        +--------------------------+
-| UI Layer (Compose)  |  <--   | ViewModel (StateFlow)   |  <--   | Domain Layer (Engines)   |
-| - HomeScreen        |        | - HabitViewModel        |        | - HabitEngine            |
-| - HistoryScreen     |        +-------------------------+        | - PredictionEngine       |
-| - InsightsScreen    |                                           | - DeviationDetector      |
-| - HealthScreen      |                                           +--------------------------+
-+---------------------+                                                      ^
-                                                                             |
-                                                                  +--------------------------+
-                                                                  | Data Layer (Repository)  |
-                                                                  | - HabitRepository        |
-                                                                  | - ContextRepository      |
-                                                                  +--------------------------+
-                                                                             ^
-                                                                             |
-                                                                  +--------------------------+
-                                                                  | Room Database            |
-                                                                  | - AppUsageEntity         |
-                                                                  | - DiscoveredHabitEntity  |
-                                                                  +--------------------------+
+android/app/src/main/java/com/habitminer/
+├── collection/   usage log reader, sensors, device events (unlocks, alarms, Do Not Disturb)
+├── data/         Room entities and DAOs, import/export
+├── repository/   access to stored data for the rest of the app
+├── analytics/    pure Kotlin: sleep, naps, usual days, changes, routines, insights
+├── engine/       analysis pipeline and the ViewModel
+├── goals/        targets, intentions and reminders
+├── mindful/      mindful pause and focus sessions
+├── proactive/    questions, nudges, reminders, notifications
+├── update/       release check and install
+├── widget/       home-screen widget
+└── ui/           Compose screens and the design system
 ```
+
+More background on the original design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting started
 
-### Prerequisites
-- Android Studio (JDK 17 or newer).
-- A physical Android device (API 26+). *Emulators may not generate realistic usage stats or sensor data.*
+### Install
+Every push to `habitminer-extended` builds the APK in CI and publishes it on the `ci-out-habitminer-extended` branch as `HabitMinerExtended.apk`. It installs next to the original HabitMiner and keeps its data across updates.
 
-### Build & Run
+To bring your history across: in HabitMiner, open Settings and tap **Export data**, then share the ZIP to **HM Extended** (or use **Choose file** on the Today import card).
+
+### Build
 ```bash
 cd android
 
-# Format code
-./gradlew spotlessApply
-
-# Run Unit Tests
-./gradlew testDebugUnitTest
-
-# Build APK
-./gradlew assembleDebug
-
-# Install on connected device
+./gradlew testDebugUnitTest      # unit and screenshot tests
+./gradlew assembleDebug          # debug APK
+./gradlew assembleRelease        # release APK (R8)
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-**Shared debug key.** Debug builds are signed with `android/app/debug.keystore` (debug-only, not secret), so an APK built by CI or by any teammate installs over an existing one and keeps its data. CI publishes the latest debug APK on every push (Actions → Artifacts).
+Requires JDK 21 and a physical Android 8.0+ device; emulators don't produce realistic usage or sensor data.
 
-**Moving data or switching from an older build.** If Android says *"package conflicts with an existing package"*, the installed app was signed with a different key. Open the old app → Settings → **Export Data Now**, uninstall it, install the new APK, then Settings → **Import a previous export** and pick the ZIP. App usage, surroundings readings, labels and places are merged without duplicates, and routines are rebuilt.
-
-### Permissions Required
-The app requires the following permissions to function fully:
-- **Usage Access**: To read app usage statistics.
-- **Physical Activity**: To detect your current motion state.
-- **Notifications**: To monitor digital interruptions.
-- **Ignore Battery Optimizations**: Required on some OEMs to keep the background collection service alive.
-- **Location (optional)**: Only if you turn on Wi-Fi places. Android requires it to reveal which Wi-Fi network you're connected to; no location is recorded.
-
-The app provides a seamless onboarding flow via the **HealthScreen** to grant and monitor these permissions.
+### Permissions
+- **Usage access**: which apps you use and when.
+- **Notification access**: notification counts per app, never their text.
+- **Physical activity**: steps and activity recognition, to tell walking from sitting.
+- **Battery optimisation off**: so Android doesn't stop collection in the background.
+- **Optional**: Health Connect (sleep), calendar (busy times), location (only to see the Wi-Fi network for places; no location is recorded).
 
 ---
 
 ## 📄 License
-Distributed under the MIT License.
+Distributed under the MIT License. The README for HabitMiner 1.3.1 is kept as [README_OLD.md](README_OLD.md).
